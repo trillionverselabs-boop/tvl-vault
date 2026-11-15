@@ -1,6 +1,6 @@
 # The Vault — handoff
 
-**Last updated:** 2026-11-15 ~09:05 EST
+**Last updated:** 2026-11-15 ~11:40 EST
 **Owner:** this session (charlene). **One working copy:** `/home/lisacore/work/tvl-vault`
 **Repo:** local git only — **no remote, therefore private.** Do not add a remote without Lisa saying so.
 
@@ -22,26 +22,30 @@
 | 5.7 | Review queue + corrections | commit `08fe1d9` — `corrections` table, `review.queue()`, a decision never writes a source; worktree: **40 passed** |
 | 6 | **Backend routes + desktop page** | commit `40266be` — `dashboard/plugin_api.py`, `desktop/plugin.js` (Graph · Wall · Ask · Review), `__init__.py`, `plugin.yaml`. `hermes plugins validate .` → **`Validation passed.`** + `security scan — safe`; worktree: **85 passed** |
 | 7 | **Cited question answers** | commit `2926270` — `src/vault/qa.py` (retrieval ladder + IDF ranking + citations, session model, temperature 0); worktree: **52 passed** |
+| 8 | **One-command rebuild + flag summary** | commit `9272142` — `src/vault/cli.py` + `src/vault/__main__.py` + `scripts/rebuild.sh`; `./scripts/rebuild.sh` on the real corpus: **369 documents · 1,866 sections · 118 duplicates · 199 images · flags: duplicate=118, unclear=43, current=260 in 6.7 s**; worktree: **100 passed** |
 
-**Tests:** 85 passed.
+**Tests:** 100 passed.
 ```bash
 cd /home/lisacore/work/tvl-vault
 PYTHON=.venv/bin/python ./scripts/test.sh
-# 85 passed, 1 warning in 34.62 s
+# 100 passed, 1 warning in 43.94 s
 ```
 Every commit above was checked out into a throwaway worktree and tested on its own
-(33 → 35 → 40 → 52 → 85 passing); no broken intermediate state is recorded.
+(33 → 35 → 40 → 52 → 85 → 100 passing); no broken intermediate state is recorded.
 
-**Real build:** 369 documents · 1,866 sections · 99 duplicates · **5.2 s**.
+**Real build:** 369 documents · 1,866 sections · 118 duplicates · 199 images · **6.7 s**.
 ```bash
-.venv/bin/python /home/lisacore/.hermes/profiles/charlene/cache/scratch/evidence.py
-# BUILD 5.2s documents=369 sections=1866 duplicates=99
-# FLAGS {'duplicate': 99, 'unclear': 43, 'current': 278}
+cd /home/lisacore/work/tvl-vault
+./scripts/rebuild.sh --db /home/lisacore/.hermes/profiles/charlene/cache/scratch/cli-real3.db
+# exit 0 in 6.7 s
+# vault: 4 roots → …/cli-real3.db
+#   documents 369 · sections 1866 · duplicates 118 · images 199 · flags: duplicate=118, unclear=43, current=260
 ```
-Verified searches: `sabotage` → *Paper & Claim Verification Report* · `chunking` → *TVL — CIA of AI — Canonical Logic* · `budget` → *Validize Research Pipeline v2*.
-Ask path (`what did the doctrine say about chunking?`) returns the CIA of AI *RAG System Definition* section in the top 6.
+The same command run twice in a row prints identical counts (idempotent).
+Verified searches: `sabotage` → *Paper & Claim Verification Report* §2.2 "Tournament sabotage" · `chunking` → *TVL — CIA of AI — Canonical Logic (v1.0)* §RAG System Definition · `budget` → *Validize Research Pipeline v2*.
+`python -m vault stats --db <file>` prints the same numbers without writing anything.
 
-**Corpus roots:** `~/.hermes/profiles/charlene/attachments` · `/home/lisacore/work` · `/home/lisacore/Projects`
+**Corpus roots:** `~/.hermes/profiles/charlene/attachments` · `/home/lisacore/work` · `/home/lisacore/Projects` · `/home/lisacore/work/tvl-ingest` (4 roots; the last is added only when it exists, and `HERMES_VAULT_ROOTS` overrides all of them)
 **New corpus landed 2026-11-14:** `/home/lisacore/work/tvl-ingest/Trillionverselabs vision/` — 25 PDFs, 51 MB, already indexed.
 
 ---
@@ -50,7 +54,6 @@ Ask path (`what did the doctrine say about chunking?`) returns the CIA of AI *RA
 
 | Task | What | Where |
 |---|---|---|
-| 8 | One-command rebuild + flag summary | `src/vault/cli.py`, `scripts/rebuild.sh` |
 | 9 | Images: dimensions + vision captions, **non-junk only**; keep images out of the review queue | `src/vault/images.py` |
 | 10 | Conflict detection — model-assisted, on demand, capped at 200 pairs. *(The review-queue half — Keep / Confirm / Edit + `corrections` — is already done in commit `08fe1d9`; only the model-assisted conflict pass remains.)* | `src/vault/review.py` |
 | 11 | Package: `hermes plugins validate . --install-deps`, README/SCHEMA/CORPUS/DECISIONS | repo root, `docs/` |
@@ -78,11 +81,16 @@ A cron job **`tvl-vault-build`** (id `e2821cda9d9f`) runs **every 2 h** (4/12 us
 Pause it with `hermes cron pause tvl-vault-build`; resume with `hermes cron resume tvl-vault-build`.
 A `systemd-inhibit` blocker is running so idle sleep does not stop it.
 
-**This run (2026-11-15 08:47).** The 06:00 run had implemented tasks 6 and 7 (and the
-review-queue half of 10) but left all of it **uncommitted**, with one failing test. This
-run finished it: fixed the retrieval ranking, committed the work as five task-sized
-commits (`4a080b8`, `9665462`, `08fe1d9`, `2926270`, `40266be`), and verified each in a
-worktree. Nothing is pushed; no remote exists.
+**This run (2026-11-15 11:17).** The 08:47 run had implemented tasks 6 and 7 (and
+the review-queue half of 10) but left all of it uncommitted; it was finished as
+five task-sized commits (`4a080b8`, `9665462`, `08fe1d9`, `2926270`, `40266be`),
+each verified in a worktree.
+
+This run did **task 8** and found the thing the plan had missed: nothing computed
+the flags. `index.rebuild` writes documents and sections but leaves the `flags`
+table empty, so the Review tab showed nothing on a fresh build — the queue was
+only ever filled by a route's `_ensure_flags` fallback. `python -m vault rebuild`
+now does both jobs, and the flags it writes are the ones the queue reads.
 
 ---
 
@@ -108,6 +116,22 @@ worktree. Nothing is pushed; no remote exists.
 - **43 `unclear` flags are mostly images.** Images are indexed as documents with no
   sections, so the deterministic pass calls them unclear. Task 9 gives them
   dimensions/captions and should keep them out of the human review queue.
+- **`paths.corpus_roots()` was hard-pinned to `/home/lisacore`.** Task 8's test that
+  pointed `HERMES_HOME` at a throwaway tree still read the real corpus (242 documents
+  from `~/work` and `~/Projects`), so a test could never be hermetic and a second
+  machine would read folders that do not exist. It now takes `HERMES_VAULT_ROOTS`
+  (a `os.pathsep` list) as an override, and the ingest drop zone
+  `~/work/tvl-ingest` is a fourth root when it exists.
+- **The duplicate count is 118, not 99.** The earlier `evidence.py` probe indexed only
+  the attachments root. The real command indexes all four roots; measured split of the
+  118 `duplicates` rows: **image 60 · pdf 32 · markdown 22 · html 2 · text 2**. And
+  `documents` is 369 = image 199 · markdown 94 · pdf 35 · html 26 · text 10 · csv 4 ·
+  docx 1. The 199 image documents are the corpus's images, not just the ~28 portraits.
+- **`python -m vault` needs `__main__.py`.** A package without one fails with
+  "No module named vault.__main__". `scripts/rebuild.sh` sets `PYTHONPATH=src` and
+  calls `python -m vault rebuild`; the tests import `vault.cli` as a *package*
+  module, because a standalone `spec_from_file_location` cannot resolve its
+  relative imports.
 
 ---
 
