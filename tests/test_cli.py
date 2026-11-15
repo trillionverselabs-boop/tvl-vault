@@ -306,3 +306,35 @@ def test_the_desktop_docs_point_at_the_rebuild_command():
     for doc in (ROOT / "HANDOFF.md", ROOT / "docs" / "PLAN.md"):
         if doc.exists():
             assert "rebuild" in doc.read_text().lower()
+
+
+def test_the_summary_reports_what_the_wall_will_show(tmp_path, capsys):
+    """The rebuild line is what a human reads after a refresh; it must say how
+    many pictures the wall will actually display, and how many are junk."""
+    import struct
+    import zlib
+
+    def png(width, height, tag):
+        raw = b"".join(b"\x00" + tag * width for _ in range(height))
+
+        def chunk(t, d):
+            body = t + d
+            return struct.pack(">I", len(d)) + body + struct.pack(">I", zlib.crc32(body))
+
+        return (b"\x89PNG\r\n\x1a\n"
+                + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0))
+                + chunk(b"IDAT", zlib.compress(raw, 9)) + chunk(b"IEND", b""))
+
+    root = tmp_path / "corpus"
+    root.mkdir()
+    (root / "calvin.png").write_bytes(png(640, 480, b"\x11"))
+    (root / "plugintest5a.png").write_bytes(png(800, 600, b"\x22"))
+    db_path = tmp_path / "vault.db"
+    cli = _load_cli()
+
+    cli.main(["rebuild", "--root", str(root), "--db", str(db_path)])
+
+    out = capsys.readouterr().out
+    assert "images: 1 shown · 1 test screenshots" in out, out
+    # the summary is a count, not a caption: no model call may be implied
+    assert "caption" not in out.lower()

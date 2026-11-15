@@ -14,6 +14,8 @@ Paths (all read-only; the index is rebuilt by `vault rebuild`, never by a route)
   GET  /review                 the non-current flags, worst first
   GET  /document/{doc_id}      one document and its sections
   GET  /wall                   the card wall (documents, junk collapsed)
+  GET  /images[?with_captions=1]  the picture half: dimensions + captions
+  GET  /file?path=…            one corpus file's bytes (the wall's <img>)
   POST /ask                    a cited answer, on the session model
 """
 
@@ -81,6 +83,7 @@ _paths = importlib.import_module("vault.paths")
 _index = importlib.import_module("vault.index")
 _review = importlib.import_module("vault.review")
 _qa = importlib.import_module("vault.qa")
+_images = importlib.import_module("vault.images")
 
 router = APIRouter()
 
@@ -109,14 +112,20 @@ def _db() -> sqlite3.Connection:
 
 
 def _flag_map(db: sqlite3.Connection) -> dict[str, str]:
-    """doc_id -> its worst flag. A document carries at most one visible status."""
+    """doc_id -> its worst flag. A document carries at most one visible status.
+
+    An image has no flag at all (`review.compute_flags` leaves it out): a picture
+    makes no claim, so "current" would be a false statement about it. The wall
+    and the graph read that as `None` and show it as an artifact instead.
+    """
     worst = {"conflict": 0, "outdated": 1, "duplicate": 2, "unclear": 3, "current": 4}
     out: dict[str, str] = {}
+    image_ids = {r[0] for r in db.execute("SELECT doc_id FROM documents WHERE kind='image'")}
     for row in db.execute("SELECT doc_id, flag FROM flags"):
         prev = out.get(row["doc_id"])
         if prev is None or worst.get(row["flag"], 9) < worst.get(prev, 9):
             out[row["doc_id"]] = row["flag"]
-    return out
+    return {k: v for k, v in out.items() if k not in image_ids}
 
 
 @router.get("/health")
@@ -147,7 +156,11 @@ async def graph() -> dict:
     nodes: list[dict] = []
     for d in db.execute("SELECT doc_id,title,kind,path FROM documents"):
         nodes.append({"id": d["doc_id"], "label": d["title"], "kind": "document",
-                      "group": d["kind"], "path": d["path"], "flag": flags.get(d["doc_id"], "current")})
+                      "group": d["kind"], "path": d["path"],
+                      # an image makes no claim, so it has no status; the UI shows
+                      # it as an artifact rather than "current"
+                      "flag": flags.get(d["doc_id"]) if d["kind"] != "image"
+                      else None})
     for s in db.execute("SELECT section_id,doc_id,title FROM sections ORDER BY ord"):
         nodes.append({"id": s["section_id"], "label": s["title"], "kind": "section",
                       "group": s["doc_id"], "doc": s["doc_id"]})
@@ -252,15 +265,71 @@ async def document(doc_id: str) -> dict:
 
 
 @router.get("/wall")
-async def wall() -> dict:
-    """Documents for the card wall. Junk screenshots are counted, not listed."""
+async def wall(with_captions: bool = False) -> dict:
+    """Documents for the card wall, plus the pictures the wall exists for.
+
+    `documents` is the text corpus (junk screenshots collapsed behind
+    `junk_count`). `images` is the picture half, built by `vault.images.wall`:
+    dimensions read from each file's header, and one vision caption for every
+    non-junk image. Junk is counted, never listed and never sent to the model.
+
+    Captions are opt-in (`?with_captions=1`) because each one is a model call.
+    The page asks for them once, when the Wall tab is opened with a model bound;
+    without them the route is instant and free, and the wall still shows every
+    picture.
+    """
     db = _db()
     flags = _flag_map(db)
     rows = db.execute(
-        "SELECT doc_id,title,kind,path,is_junk FROM documents WHERE is_junk=0 "
-        "ORDER BY kind, title")
-    junk = db.execute("SELECT COUNT(*) FROM documents WHERE is_junk=1").fetchone()[0]
+        "SELECT doc_id,title,kind,path,is_junk FROM documents "
+        "WHERE kind!='image' AND is_junk=0 ORDER BY kind, title")
+    iw = _images.wall(db, get_llm() if with_captions else None)
     return {
-        "junk_count": junk,
+        "junk_count": iw["junk_count"],
         "documents": [dict(r) | {"flag": flags.get(r["doc_id"], "current")} for r in rows],
+        "images": iw["images"],
+        "captions": iw["captions"],
     }
+
+
+@router.get("/images")
+async def images_route(with_captions: bool = False) -> dict:
+    """The picture half alone: `{images, junk_count, captions}`.
+
+    Captions are opt-in for the same reason they are on `/wall`: each is a model
+    call, and a wall that renders while the free model is throttled must still
+    render. Dimensions and titles are always free.
+    """
+    db = _db()
+    return _images.wall(db, get_llm() if with_captions else None)
+
+
+# The corpus roots, resolved once. `/file` is the one route that reads a path
+# from the request, so it may only ever serve a file the index itself lists —
+# never an arbitrary path from the query string.
+def _indexed_paths(db: sqlite3.Connection) -> dict[str, str]:
+    return {str(row["path"]): row["path"] for row in db.execute("SELECT path FROM documents")}
+
+
+@router.get("/file")
+async def file(path: str = ""):
+    """One corpus file's bytes, for the wall's `<img>`.
+
+    The path must be a document the index knows. That check is the whole point
+    of the route: a plugin that echoed any path would be an open file server,
+    and the desktop page is the only caller.
+    """
+    if not path:
+        raise HTTPException(400, "a path is required")
+    db = _db()
+    known = _indexed_paths(db)
+    if path not in known:
+        raise HTTPException(404, "that file is not in the index")
+    p = Path(path)
+    if not p.is_file():
+        raise HTTPException(404, "that file is gone")
+    from fastapi.responses import Response
+
+    return Response(content=p.read_bytes(), media_type=_images.mime_of(p))
+
+

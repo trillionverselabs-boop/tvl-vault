@@ -49,6 +49,26 @@ def _counts(db: sqlite3.Connection) -> dict[str, int]:
     }
 
 
+def _image_summary(db: sqlite3.Connection) -> str:
+    """`12 portraits · 130 test screenshots` — the counts behind the wall.
+
+    Read straight from the index, and deliberately without captions: this runs
+    on every rebuild, and captions are a model call the rebuild must never make.
+    """
+    from . import images as image_mod
+
+    rows = db.execute(
+        "SELECT path, is_junk FROM documents WHERE kind='image'").fetchall()
+    shown = [r for r in rows if not r["is_junk"]]
+    sized = sum(1 for r in shown if image_mod.dimensions(Path(r["path"])))
+    junk = len(rows) - len(shown)
+    parts = [f"{len(shown)} shown"]
+    if sized != len(shown):
+        parts.append(f"{len(shown) - sized} unreadable")
+    parts.append(f"{junk} test screenshots")
+    return "images: " + " · ".join(parts)
+
+
 def _summary(db: sqlite3.Connection, roots: list[Path], db_path: Path) -> str:
     """The human-readable line the command prints.
 
@@ -62,6 +82,8 @@ def _summary(db: sqlite3.Connection, roots: list[Path], db_path: Path) -> str:
     flags = _flags(db)
     if flags:
         parts.append("flags: " + ", ".join(f"{k}={v}" for k, v in flags.items() if v))
+    if c["images"]:
+        parts.append(_image_summary(db))
     return f"vault: {len(roots)} root{'s' if len(roots) != 1 else ''} → {db_path}\n  " \
         + " · ".join(parts)
 

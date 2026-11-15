@@ -13,7 +13,7 @@ import { host, useValue, ROUTES_AREA, SIDEBAR_NAV_AREA } from '@hermes/plugin-sd
 import { useState, useEffect, useRef } from 'react'
 import { jsx, jsxs } from 'react/jsx-runtime'
 
-const BUILD = '0.1.0 · ui1'    // bump on every UI change — how you know the app reloaded
+const BUILD = '0.1.0 · ui2'    // bump on every UI change — how you know the app reloaded
 const NAME = 'The Vault'
 
 // ── the approved palette. Exact values; do not substitute. ────────────────
@@ -47,6 +47,9 @@ const FLAG = {
   duplicate: { c: C.duplicate, label: 'Duplicate' },
   conflict: { c: C.conflict, label: 'Disagrees' },
   unclear: { c: C.text, label: 'Unclear' },
+  // an image carries no flag: a picture makes no claim, so "current" would be
+  // a false statement about it. It is an artifact, not doctrine.
+  artifact: { c: C.muted, label: 'Image' },
 }
 const FLAG_ORDER = ['conflict', 'outdated', 'duplicate', 'unclear', 'current']
 
@@ -135,6 +138,12 @@ const CSS = `
   .vz-card h3{margin:6px 0 5px;font-size:14px;font-weight:600;line-height:1.3}
   .vz-card p{margin:0;font-size:12.5px;color:var(--vz-muted)}
   .vz-card .badge{margin-top:10px}
+  .vz-imgs{grid-template-columns:repeat(auto-fill,minmax(200px,1fr))}
+  .vz-thumb{width:100%;border-radius:8px;overflow:hidden;background:var(--vz-panel2);
+    border:1px solid var(--vz-border);display:flex;align-items:center;justify-content:center}
+  .vz-thumb img{display:block;width:100%;height:100%;object-fit:cover}
+  .vz-img .k{margin-top:9px}
+  .vz-img p{margin-top:3px;font-size:12px;color:var(--vz-muted);line-height:1.45}
   .vz-badge{display:inline-flex;align-items:center;gap:6px;font-family:${C.mono};font-size:10px;
     letter-spacing:.08em;text-transform:uppercase;padding:3px 8px;border-radius:20px;
     border:1px solid var(--vz-border2);color:var(--vz-muted)}
@@ -144,6 +153,7 @@ const CSS = `
   .vz-badge.duplicate{color:#9aa8bb}
   .vz-badge.conflict{color:${C.conflict};border-color:rgba(248,113,113,.4)}
   .vz-badge.unclear{color:var(--vz-text);border-style:dashed}
+  .vz-badge.artifact{color:var(--vz-muted);border-style:dashed}
   .vz-ask{overflow-y:auto;padding:22px}
   .vz-askwrap{max-width:760px;margin:0 auto}
   .vz-askwrap h2{margin:0 0 6px;font-size:19px;font-weight:600;letter-spacing:-.01em}
@@ -274,9 +284,11 @@ function useVault(path, restRef) {
   return { data, error }
 }
 
-function Badge({ flag }) {
-  const f = FLAG[flag] || FLAG.current
-  return jsx('span', { className: 'vz-badge ' + flag, children: f.label })
+function Badge({ flag, group }) {
+  // A picture has no status; it is labelled by what it is, not by a verdict.
+  const f = FLAG[flag] || (group === 'image' ? FLAG.artifact : FLAG.current)
+  return jsx('span', { className: 'vz-badge ' + (flag || (group === 'image' ? 'artifact' : 'current')),
+    children: f.label })
 }
 
 function Loading({ error }) {
@@ -455,20 +467,67 @@ function GraphPane({ ctx, graph, showSections, flagFilter, onSelect, selectedId 
 }
 
 /* ── the wall ───────────────────────────────────────────────────────────── */
-function WallPane({ ctx, wall, onSelect }) {
+// Two grids. The documents grid is the text corpus; the images grid is the
+// "pretty visual items" the Vault was built for — the portraits, the org chart,
+// the renders — each with its dimensions and, when the model described it, one
+// line of plain language. Junk screenshots are counted in a note and never
+// listed, so the wall stays a picture of the work rather than of the tests.
+function WallPane({ ctx, wall, onSelect, onOpen }) {
   if (!wall) return jsx(Loading, {})
   const docs = wall.documents || []
+  const imgs = wall.images || []
   return jsxs('div', {
     className: 'vz-pane on vz-wall',
     children: [
-      jsx('div', { className: 'vz-grid', children: docs.map(d => jsxs('div', {
-        className: 'vz-card', onClick: () => onSelect(d),
+      imgs.length ? jsxs('div', {
+        style: { marginBottom: 22 },
         children: [
-          jsx('div', { className: 'k', style: { color: C[d.kind] || C.notes }, children: KIND_LABEL[d.kind] || d.kind }),
-          jsx('h3', { children: d.title }),
-          jsx('div', { className: 'badge', children: jsx(Badge, { flag: d.flag }) }),
+          jsx('span', { className: 'vz-micro', children: 'Images' }),
+          jsx('div', {
+            className: 'vz-grid vz-imgs',
+            children: imgs.map(i => jsxs('div', {
+              className: 'vz-card vz-img',
+              onClick: () => onSelect({
+                id: i.doc_id, kind: 'document', label: i.title,
+                group: 'image', flag: null, path: i.path, caption: i.caption,
+              }),
+              children: [
+                jsx('div', {
+                  className: 'vz-thumb',
+                  style: { aspectRatio: i.width && i.height ? `${i.width} / ${i.height}` : '4 / 3' },
+                  children: jsx('img', {
+                    src: `/api/plugins/tvl-vault/file?path=${encodeURIComponent(i.path)}`,
+                    alt: i.caption || i.title,
+                    loading: 'lazy',
+                    onError: e => { e.currentTarget.style.display = 'none' },
+                  }),
+                }),
+                jsx('div', {
+                  className: 'k',
+                  style: { color: C.images },
+                  children: i.width && i.height
+                    ? `${i.width} × ${i.height}`
+                    : 'Image',
+                }),
+                jsx('h3', { children: i.title }),
+                i.caption ? jsx('p', { children: i.caption }) : null,
+              ],
+            }, i.doc_id)),
+          }),
         ],
-      }, d.doc_id)) }),
+      }) : null,
+      jsx('span', { className: 'vz-micro', children: 'Documents' }),
+      jsx('div', {
+        className: 'vz-grid',
+        children: docs.map(d => jsxs('div', {
+          className: 'vz-card', onClick: () => onSelect(d),
+          children: [
+            jsx('div', { className: 'k', style: { color: C[d.kind] || C.notes }, children: KIND_LABEL[d.kind] || d.kind }),
+            jsx('h3', { children: d.title }),
+            jsx('div', { className: 'badge', children: jsx(Badge, { flag: d.flag, group: d.kind }) }),
+          ],
+        }, d.doc_id)),
+      }),
       wall.junk_count ? jsx('div', {
         className: 'vz-note', style: { maxWidth: 900 },
         children: `${wall.junk_count} test screenshots are indexed but kept out of this wall. They are build artifacts, not doctrine.`,
@@ -667,7 +726,29 @@ function Page({ ctx }) {
     ctx.rest ? ctx.rest(path, options) : Promise.reject(new Error('no ctx.rest'))
   const { data: graph, error: graphError } = useVault('/graph', restRef)
   const { data: stats } = useVault('/stats', restRef)
-  const { data: wall } = useVault('/wall', restRef)
+  // The wall's pictures come without captions: each caption is a model call, so
+  // they are asked for once, only when the Wall tab is opened, and a failure
+  // leaves the pictures on the wall with no description rather than an error.
+  const [wall, setWall] = useState(null)
+  const [wallError, setWallError] = useState(null)
+  useEffect(() => {
+    let alive = true
+    restRef.current('/wall')
+      .then(d => { if (alive) setWall(d) })
+      .catch(e => { if (alive) setWallError(String(e)) })
+    return () => { alive = false }
+  }, [])
+  useEffect(() => {
+    if (tab !== 'wall' || !wall || (wall.captions || 0) > 0) return
+    let alive = true
+    restRef.current('/images?with_captions=1')
+      .then(d => {
+        if (!alive || !d || !d.images) return
+        setWall(w => w ? { ...w, images: d.images, captions: d.captions } : w)
+      })
+      .catch(() => {})
+    return () => { alive = false }
+  }, [tab, wall])
   const { data: review, error: reviewError } = useVault('/review', restRef)
   const [decisions, setDecisions] = useState({})
   // `busy` is the doc_id being decided on, so its buttons cannot be clicked twice.
@@ -863,14 +944,27 @@ function Page({ ctx }) {
             className: 'vz-right',
             children: sel ? jsxs('div', {
               children: [
-                jsxs('div', {
+                jsx('div', {
                   className: 'vz-dhead',
                   children: [
                     jsx('div', { className: 'k', style: { color: C[sel.group] || C.notes }, children: KIND_LABEL[sel.group] || sel.group }),
                     jsx('h2', { children: sel.label }),
-                    jsx(Badge, { flag: sel.flag }),
+                    jsx(Badge, { flag: sel.flag, group: sel.group }),
                   ],
                 }),
+                sel.group === 'image' ? jsx('div', {
+                  className: 'vz-thumb',
+                  style: { marginTop: 14, maxHeight: 260 },
+                  children: jsx('img', {
+                    src: `/api/plugins/tvl-vault/file?path=${encodeURIComponent(sel.path)}`,
+                    alt: sel.label,
+                    onError: e => { e.currentTarget.style.display = 'none' },
+                  }),
+                }) : null,
+                sel.caption ? jsx('p', {
+                  style: { fontSize: 13, color: C.muted, lineHeight: 1.55 },
+                  children: sel.caption,
+                }) : null,
                 jsxs('div', {
                   className: 'vz-dmeta',
                   children: [
@@ -892,6 +986,7 @@ function Page({ ctx }) {
         ],
       }),
       graphError ? jsx('div', { className: 'vz-note', children: String(graphError) }) : null,
+      wallError ? jsx('div', { className: 'vz-note', children: String(wallError) }) : null,
     ],
   })
 }

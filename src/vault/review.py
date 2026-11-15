@@ -67,7 +67,10 @@ def compute_flags(db: sqlite3.Connection) -> list[dict]:
             flags.append({"section_id": None, "doc_id": d["doc_id"], "flag": "outdated",
                           "reason": f"VALIDITY tag says {val!r}", "evidence": val})
 
-    # 4. nothing extractable
+    # 4. nothing extractable. An image is not a claim: it has no sections and
+    #    never did. Flagging 199 pictures as UNCLEAR is what made 43 of the real
+    #    corpus's unclear flags meaningless, so they are excluded here and shown
+    #    on the wall instead (Task 9).
     for d in docs:
         if d["kind"] == "image":
             continue
@@ -76,9 +79,13 @@ def compute_flags(db: sqlite3.Connection) -> list[dict]:
             flags.append({"section_id": None, "doc_id": d["doc_id"], "flag": "unclear",
                           "reason": "no extractable sections", "evidence": ""})
 
-    # 5. everything not flagged is current
+    # 5. everything not flagged is current — except an image, which has no
+    #    status at all. "Current" is a claim about a document's text; a picture
+    #    makes no claim, so it is left flagless and the UI calls it an artifact.
     flagged = {f["doc_id"] for f in flags}
     for d in docs:
+        if d["kind"] == "image":
+            continue
         if d["doc_id"] not in flagged:
             flags.append({"section_id": None, "doc_id": d["doc_id"], "flag": "current",
                           "reason": "newest version, no contradiction found", "evidence": ""})

@@ -434,3 +434,159 @@ def test_the_desktop_ask_tab_calls_the_backend():
     assert "Task 7" not in JS.read_text(), "the Ask tab is still the placeholder"
     # the answer is rendered with its citations, as the mockup shows
     assert "cites" in src and "answer" in src
+
+
+# ── the wall's picture half (Task 9) ────────────────────────────────────────
+
+def _png(width: int, height: int, tag: bytes = b"\x11") -> bytes:
+    """A real PNG header + a real IDAT chunk, written by hand (no Pillow)."""
+    import struct
+    import zlib
+
+    raw = b"".join(b"\x00" + tag * width for _ in range(height))
+
+    def chunk(tag_bytes: bytes, data: bytes) -> bytes:
+        body = tag_bytes + data
+        return (struct.pack(">I", len(data)) + body
+                + struct.pack(">I", zlib.crc32(body)))
+
+    return (b"\x89PNG\r\n\x1a\n"
+            + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0))
+            + chunk(b"IDAT", zlib.compress(raw, 9))
+            + chunk(b"IEND", b""))
+
+
+def _seed_images(tmp_path: Path) -> Path:
+    """One real portrait, one junk screenshot, one note — then an index over them.
+
+    The note is written here rather than by `_seed` because that helper also
+    drops a byte-identical `beta.pdf`, which would leave the note flagged as a
+    duplicate and hide the status these tests are reading.
+    """
+    (tmp_path / "calvin.png").write_bytes(_png(640, 480, tag=b"\x11"))
+    (tmp_path / "plugintest5a.png").write_bytes(_png(800, 600, tag=b"\x22"))
+    (tmp_path / "doctrine.md").write_text("# Alpha Doctrine\n\nsabotage contest logic\n")
+    return index.rebuild(tmp_path, tmp_path / "vault.db")
+
+
+def test_the_wall_serves_the_pictures_the_wall_exists_for(tmp_path, monkeypatch):
+    """The user's 'pretty visual items' are the portraits; the wall must carry
+    them, with dimensions read from the file rather than from a library."""
+    _seed_images(tmp_path)
+    mod = _load_api(tmp_path, monkeypatch)
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    app = FastAPI()
+    app.include_router(mod.router)
+    client = TestClient(app)
+
+    w = client.get("/wall").json()
+    assert [Path(i["path"]).name for i in w["images"]] == ["calvin.png"]
+    assert w["images"][0]["width"] == 640 and w["images"][0]["height"] == 480
+    assert w["junk_count"] == 1
+    # the junk screenshot is not in the document list either
+    assert "plugintest5a" not in {d["title"] for d in w["documents"]}
+
+
+def test_the_wall_captions_only_when_asked(tmp_path, monkeypatch):
+    """Captions are a model call; the default wall must not spend one."""
+    _seed_images(tmp_path)
+    mod = _load_api(tmp_path, monkeypatch)
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    app = FastAPI()
+    app.include_router(mod.router)
+    client = TestClient(app)
+
+    called = []
+
+    class Spy:
+        def complete_structured(self, **kw):
+            called.append(kw)
+            return types.SimpleNamespace(text="a portrait")
+
+    monkeypatch.setattr(mod, "get_llm", lambda: Spy())
+    plain = client.get("/wall").json()
+    assert called == [], "the default wall called the model"
+    assert plain["captions"] == 0
+
+    captioned = client.get("/wall", params={"with_captions": 1}).json()
+    assert len(called) == 1
+    assert captioned["captions"] == 1 and captioned["images"][0]["caption"] == "a portrait"
+
+
+def test_the_images_route_is_dimensions_without_a_model(tmp_path, monkeypatch):
+    _seed_images(tmp_path)
+    mod = _load_api(tmp_path, monkeypatch)
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    app = FastAPI()
+    app.include_router(mod.router)
+    client = TestClient(app)
+    monkeypatch.setattr(mod, "get_llm", lambda: None)
+
+    body = client.get("/images").json()
+    assert [Path(i["path"]).name for i in body["images"]] == ["calvin.png"]
+    assert body["images"][0]["caption"] == "" and body["images"][0]["width"] == 640
+
+
+def test_an_image_carries_no_status_in_the_graph(tmp_path, monkeypatch):
+    """A picture makes no claim, so it carries no flag. The UI reads that as an
+    artifact rather than asserting the image is verified doctrine."""
+    _seed_images(tmp_path)
+    mod = _load_api(tmp_path, monkeypatch)
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    app = FastAPI()
+    app.include_router(mod.router)
+    client = TestClient(app)
+
+    nodes = client.get("/graph").json()["nodes"]
+    image = next(n for n in nodes if n["group"] == "image")
+    assert image["flag"] is None, image
+    note = next(n for n in nodes if n["group"] == "markdown")
+    assert note["flag"] == "current", note
+
+
+def test_the_file_route_serves_only_what_the_index_knows(tmp_path, monkeypatch):
+    """The wall's <img> must not become an open file server."""
+    _seed_images(tmp_path)
+    mod = _load_api(tmp_path, monkeypatch)
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    app = FastAPI()
+    app.include_router(mod.router)
+    client = TestClient(app)
+
+    r = client.get("/file", params={"path": str(tmp_path / "calvin.png")})
+    assert r.status_code == 200
+    assert r.content == (tmp_path / "calvin.png").read_bytes()
+    assert r.headers["content-type"].startswith("image/")
+
+    assert client.get("/file", params={"path": "/etc/passwd"}).status_code == 404
+    assert client.get("/file").status_code == 400
+    assert client.get("/file", params={"path": str(tmp_path / "absent.png")}).status_code == 404
+
+
+def test_the_wall_page_shows_the_pictures_and_not_the_screenshots():
+    """Task 9's acceptance: the wall is the 'pretty visual items' surface."""
+    src = _code_only(JS.read_text())
+    assert "wall.images" in src, "the wall pane never reads the image half"
+    assert "vz-thumb" in src, "the wall does not render the picture itself"
+    assert "/file?path=" in src, "the wall's image has no source route"
+    assert "/images?with_captions=1" in src, "captions are never asked for"
+    # the junk note stays, and junk is never listed
+    assert "test screenshots are indexed but kept out of this wall" in src
+
+
+def test_an_image_is_labelled_as_an_image_not_as_current():
+    """A picture makes no claim; the badge must not assert it is verified."""
+    src = _code_only(JS.read_text())
+    assert "FLAG.artifact" in src, "no artifact status for images"
+    assert "group === 'image' ? FLAG.artifact" in src
+
