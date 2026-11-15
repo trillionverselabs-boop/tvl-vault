@@ -1,6 +1,6 @@
 # The Vault — handoff
 
-**Last updated:** 2026-11-15 ~01:30 EST
+**Last updated:** 2026-11-15 ~02:00 EST
 **Owner:** this session (charlene). **One working copy:** `/home/lisacore/work/tvl-vault`
 **Repo:** local git only — **no remote, therefore private.** Do not add a remote without Lisa saying so.
 
@@ -52,6 +52,8 @@ Verified searches: `sabotage` → *Paper & Claim Verification Report* · `chunki
 | 10 | Conflict detection — model-assisted, on demand, capped at 200 pairs | `src/vault/review.py` |
 | 11 | Package: `plugin.yaml`, `hermes plugins validate . --install-deps`, README/SCHEMA/CORPUS/DECISIONS | repo root, `docs/` |
 | 12 | **Review walkthrough with Lisa** — needs her, not autonomous | — |
+| 13 | **Draft the eight-document spine** (mission → metrics) + the dream statement, each section citing the corpus. One read, then split into site pages | `docs/SPINE.md` |
+| 14 | **The research-to-product pipeline**: Vault → scored opportunities → products. The chosen path | `src/vault/` + `docs/` |
 
 Full detail and copy-pasteable code: `docs/PLAN.md`.
 
@@ -74,6 +76,15 @@ Pause it with `hermes cron pause tvl-vault-build`; resume with `hermes cron resu
 A `systemd-inhibit` blocker is running so idle sleep does not stop it.
 
 ---
+
+## Direction decisions — 2026-11-15 (from Lisa, binding)
+
+1. **The path is the research-to-product pipeline.** The Vault → scored opportunities → products. That is the work; everything else waits.
+2. **The digital product is dropped.** The earlier "$7–27 digital product" idea is old and is not part of the plan.
+3. **Let the numbers speak.** Evidence-first: no vanity numbers, no aspirational figures presented as measurements. Every number carries a source, a formula and a threshold.
+4. **The goal ladder:** survive **$1.54M** annual revenue → middle **$100M** → ultimate **$5–10 billion**. (Revenue vs valuation is not yet pinned; the big numbers read as valuation.)
+5. **Monthly allowance is $0.** The doctrine's $300 / $80 / $100 figures assumed a Google credit offer that **expired** after Google's rule churn. The corpus already records this in `Projects/youtube-channel/docs/DOCTRINE-REVIEW.md` §1 — **do not repeat the stale budget numbers** in anything written from here.
+6. **The dream:** three versions were considered — **A** the Auditable Company (headline), **B** the Self-Building Company (mechanism), **C** the Strategy Engine (product). Agreed direction: A as the headline, B as the mechanism, C as the product.
 
 ## Two things to know
 
