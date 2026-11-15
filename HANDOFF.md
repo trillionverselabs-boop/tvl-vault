@@ -1,6 +1,6 @@
 # The Vault — handoff
 
-**Last updated:** 2026-11-15 ~11:40 EST
+**Last updated:** 2026-11-15 ~16:40 EST
 **Owner:** this session (charlene). **One working copy:** `/home/lisacore/work/tvl-vault`
 **Repo:** local git only — **no remote, therefore private.** Do not add a remote without Lisa saying so.
 
@@ -23,25 +23,32 @@
 | 6 | **Backend routes + desktop page** | commit `40266be` — `dashboard/plugin_api.py`, `desktop/plugin.js` (Graph · Wall · Ask · Review), `__init__.py`, `plugin.yaml`. `hermes plugins validate .` → **`Validation passed.`** + `security scan — safe`; worktree: **85 passed** |
 | 7 | **Cited question answers** | commit `2926270` — `src/vault/qa.py` (retrieval ladder + IDF ranking + citations, session model, temperature 0); worktree: **52 passed** |
 | 8 | **One-command rebuild + flag summary** | commit `9272142` — `src/vault/cli.py` + `src/vault/__main__.py` + `scripts/rebuild.sh`; `./scripts/rebuild.sh` on the real corpus: **369 documents · 1,866 sections · 118 duplicates · 199 images · flags: duplicate=118, unclear=43, current=260 in 6.7 s**; worktree: **100 passed** |
+| 9 | **Images on the wall, out of the review queue** | commits `5714ae8` · `7f4139c` · `6ef4c65` · `68a4691`; worktree at `68a4691`: **136 passed**; `./scripts/rebuild.sh` on the real corpus: **images: 116 shown · 83 test screenshots**, review queue **161 → 101 with 0 images**; `hermes plugins validate .` → **`Validation passed.`** + **`security scan — safe`** |
 
-**Tests:** 100 passed.
+**Tests:** 136 passed.
 ```bash
 cd /home/lisacore/work/tvl-vault
 PYTHON=.venv/bin/python ./scripts/test.sh
-# 100 passed, 1 warning in 43.94 s
+# 136 passed, 1 warning in 55.41 s
 ```
 Every commit above was checked out into a throwaway worktree and tested on its own
-(33 → 35 → 40 → 52 → 85 → 100 passing); no broken intermediate state is recorded.
+(33 → 35 → 40 → 52 → 85 → 100 → 108 → 126 → 135 → 136 passing); no broken
+intermediate state is recorded.
 
-**Real build:** 369 documents · 1,866 sections · 118 duplicates · 199 images · **6.7 s**.
+**Real build (at `68a4691`):** 369 documents · 1,866 sections · 118 duplicates · 199 images · **6.8 s**.
 ```bash
 cd /home/lisacore/work/tvl-vault
-./scripts/rebuild.sh --db /home/lisacore/.hermes/profiles/charlene/cache/scratch/cli-real3.db
-# exit 0 in 6.7 s
-# vault: 4 roots → …/cli-real3.db
-#   documents 369 · sections 1866 · duplicates 118 · images 199 · flags: duplicate=118, unclear=43, current=260
+./scripts/rebuild.sh --db /home/lisacore/.hermes/profiles/charlene/cache/scratch/task9-red/wt-final.db
+# exit 0 in 6.8 s
+# vault: 4 roots → …/wt-final.db
+#   documents 369 · sections 1866 · duplicates 118 · images 199 · flags: duplicate=118, unclear=43, current=92 · images: 116 shown · 83 test screenshots
 ```
-The same command run twice in a row prints identical counts (idempotent).
+Run twice in a row, identical counts (idempotent).
+`python -m vault stats --db <file>` prints the same numbers without writing anything.
+
+**The wall (task 9):** 199 images → **116 shown, 83 test screenshots** (counted, not
+listed, never sent to the model). 0 unreadable dimensions. Review queue **101**
+(58 duplicate + 43 unclear), **0 images**.
 Verified searches: `sabotage` → *Paper & Claim Verification Report* §2.2 "Tournament sabotage" · `chunking` → *TVL — CIA of AI — Canonical Logic (v1.0)* §RAG System Definition · `budget` → *Validize Research Pipeline v2*.
 `python -m vault stats --db <file>` prints the same numbers without writing anything.
 
@@ -54,7 +61,6 @@ Verified searches: `sabotage` → *Paper & Claim Verification Report* §2.2 "Tou
 
 | Task | What | Where |
 |---|---|---|
-| 9 | Images: dimensions + vision captions, **non-junk only**; keep images out of the review queue | `src/vault/images.py` |
 | 10 | Conflict detection — model-assisted, on demand, capped at 200 pairs. *(The review-queue half — Keep / Confirm / Edit + `corrections` — is already done in commit `08fe1d9`; only the model-assisted conflict pass remains.)* | `src/vault/review.py` |
 | 11 | Package: `hermes plugins validate . --install-deps`, README/SCHEMA/CORPUS/DECISIONS | repo root, `docs/` |
 | 12 | **Review walkthrough with Lisa** — needs her, not autonomous | — |
@@ -91,6 +97,24 @@ the flags. `index.rebuild` writes documents and sections but leaves the `flags`
 table empty, so the Review tab showed nothing on a fresh build — the queue was
 only ever filled by a route's `_ensure_flags` fallback. `python -m vault rebuild`
 now does both jobs, and the flags it writes are the ones the queue reads.
+
+**This run (2026-11-15 16:14).** Task 9 was already written but uncommitted. It was
+finished as four commits (`5714ae8`, `7f4139c`, `6ef4c65`, `68a4691`), each
+verified in a worktree, and the real corpus then exposed two defects the fixtures
+had hidden:
+
+- **The `popup*` junk pattern was anchored at both ends**, so the browser's
+  re-download copies (`popupd1-2.jpg`, `popupc-2.jpg`, `popupd14-2.jpg`) were
+  not junk. 10 real screenshots were indexed as content, shown on the wall, and
+  offered to the caption model. Fixed in `sources.JUNK_PATTERNS`; the serial is
+  now one letter plus an optional `_small`/digit/counter, so `popupshire.png`
+  stays content. Junk 74 → 83.
+- **An image could be on the review queue as `duplicate`.** The fixture had no
+  duplicate image, so the test passed while the real corpus put **60 images** on
+  the queue — 161 queue rows, two-thirds of them pictures nobody could keep,
+  confirm or edit. `review.queue()` now excludes images. The duplicate *flag*
+  stays recorded (`/stats` still counts 118); the queue is a human decision.
+  Queue 161 → 101, 0 images.
 
 ---
 
@@ -132,6 +156,21 @@ now does both jobs, and the flags it writes are the ones the queue reads.
   calls `python -m vault rebuild`; the tests import `vault.cli` as a *package*
   module, because a standalone `spec_from_file_location` cannot resolve its
   relative imports.
+- **A fixture that lacks the failing case proves nothing.** Task 9's image tests
+  passed while the real corpus put 60 images on the review queue, because the
+  fixture had no byte-identical image. Both defects above were found by running
+  the real corpus, not the suite. Every new flag rule now carries a fixture with
+  the real shape (`calvin.png` + `calvin-copy.png`), not just the happy path.
+- **Dimensions need no library.** PNG's IHDR, JPEG's SOFn marker and WebP's
+  `VP8 `/`VP8L`/`VP8X` chunks are all in the file header, so `pyproject.toml`
+  keeps `dependencies = []` — which the desktop's non-interactive install
+  requires. Four real files are WebP bytes named `.jpg`, so the type sent to the
+  vision model is sniffed from content, not the extension.
+- **The junk rule is corpus-specific and drifts.** `^popup[a-z0-9_]*$` was
+  written for the names that existed when task 2 shipped. Two families are still
+  not covered and are now Lisa's call (see Needs Lisa #5): 45 video frames under
+  `work/arena-demo-video/arena-demo/frames/` and 4 `strategic-arena/assets/*.png`
+  screenshots. Both are indexed as content today.
 
 ---
 
@@ -141,6 +180,11 @@ now does both jobs, and the flags it writes are the ones the queue reads.
 2. The ~130 plugin-test screenshots: keep indexed as artifacts (current plan), or drop?
 3. The `validize{a..n}.jpg` renders — current brand assets, or superseded by `tvl-brand`?
 4. The 1.6 MB Nous Arete-27B page — keep it as a captured source, or drop it?
+5. **New (task 9):** 49 images are indexed as content but look like build output —
+   45 video frames in `work/arena-demo-video/arena-demo/frames/` (`f1.png`…`v5_53.png`)
+   and 4 screenshots in `work/strategic-arena/assets/` (`banner`, `how-it-works`,
+   `marketplace`). Junk (counted, never captioned), or real content? Today they
+   are content, so the caption model would be asked to describe 45 video frames.
 
 ---
 
