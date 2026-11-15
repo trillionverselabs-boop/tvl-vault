@@ -1,0 +1,64 @@
+"""Where The Vault reads and writes.
+
+Reads are absolute and come from three places: the profile's own attachments
+folder (where the desktop puts anything you hand me), the note trees under
+~/work and ~/Projects, and the ingest drop zone under ~/work/tvl-ingest.
+
+Writes go ONLY to `plugin_data_dir("tvl-vault")` — the profile-scoped data root
+that survives `plugins update` and `plugins remove`. This module is the only
+place that knows those paths.
+"""
+
+from __future__ import annotations
+
+import os
+from pathlib import Path
+
+PLUGIN_ID = "tvl-vault"
+
+# Directories that are build output, not source. Skipped by the scanner.
+EXCLUDED_DIR_NAMES = {
+    "node_modules", "__pycache__", ".venv", "venv", ".mypy_cache",
+    ".ruff_cache", ".pytest_cache", "dist", "build", ".cache",
+}
+
+
+def _hermes_home() -> Path:
+    try:
+        from hermes_constants import get_hermes_home
+
+        return Path(get_hermes_home())
+    except Exception:
+        return Path(os.environ.get("HERMES_HOME") or (Path.home() / ".hermes"))
+
+
+def data_root() -> Path:
+    home = _hermes_home()
+    try:
+        from plugins.plugin_storage import plugin_data_dir  # type: ignore
+
+        p = Path(plugin_data_dir(PLUGIN_ID))
+        if str(p).startswith(str(home)):
+            return p
+    except Exception:
+        pass
+    return home / PLUGIN_ID
+
+
+def vault_db_path() -> Path:
+    return data_root() / "vault.db"
+
+
+def corpus_roots() -> list[Path]:
+    """Existing source directories, in priority order. Missing ones are skipped."""
+    home = _hermes_home()
+    candidates = [
+        home / "attachments",
+        Path("/home/lisacore/work"),
+        Path("/home/lisacore/Projects"),
+    ]
+    return [c for c in candidates if c.is_dir()]
+
+
+def is_excluded_dir(name: str) -> bool:
+    return name in EXCLUDED_DIR_NAMES or name.startswith(".")
