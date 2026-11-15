@@ -1,0 +1,881 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The Vault — approved-look mockup</title>
+<style>
+  /* ── tokens ───────────────────────────────────────────────────────────
+     Chosen, not defaulted. Dark mission-control console: near-black canvas,
+     one warm accent reserved for selection, categorical colour per kind.
+     Mono for data and micro-labels, humanist sans for prose. */
+  :root{
+    --canvas:#05070d;
+    --panel:#0a0f18;
+    --panel-2:#0d1420;
+    --border:rgba(255,255,255,.07);
+    --border-2:rgba(255,255,255,.14);
+    --text:#e8edf5;
+    --muted:#a3b0c4;
+    --micro:#93a3b8;
+    --sel:#f59e0b;
+    --doctrine:#22d3ee;
+    --notes:#a78bfa;
+    --papers:#34d399;
+    --images:#fbbf24;
+    --conflict:#f87171;
+    --outdated:#94a3b8;
+    --duplicate:#64748b;
+    --current:#4ade80;
+    --sans:"Segoe UI",-apple-system,BlinkMacSystemFont,Roboto,"Helvetica Neue",Arial,sans-serif;
+    --mono:ui-monospace,"Cascadia Code","SF Mono",Consolas,"Liberation Mono",Menlo,monospace;
+    --r:10px;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    margin:0; background:var(--canvas); color:var(--text);
+    font-family:var(--sans); font-size:14px; line-height:1.45;
+    -webkit-font-smoothing:antialiased; overflow:hidden;
+  }
+  ::-webkit-scrollbar{width:10px;height:10px}
+  ::-webkit-scrollbar-thumb{background:#1b2432;border-radius:6px;border:2px solid var(--canvas)}
+  ::-webkit-scrollbar-track{background:transparent}
+
+  .micro{
+    font-family:var(--mono); font-size:10px; letter-spacing:.14em;
+    text-transform:uppercase; color:var(--micro);
+  }
+
+  /* ── header ─────────────────────────────────────────────────────────── */
+  header{
+    height:58px; display:flex; align-items:center; gap:16px;
+    padding:0 20px; border-bottom:1px solid var(--border); background:var(--panel);
+  }
+  .brand{display:flex; align-items:baseline; gap:10px; min-width:0}
+  .brand h1{
+    margin:0; font-family:var(--mono); font-size:15px; font-weight:600;
+    letter-spacing:.16em; text-transform:uppercase;
+  }
+  .brand .tag{color:var(--muted); font-size:13px; white-space:nowrap}
+  header .spacer{flex:1}
+  .head-stats{display:flex; gap:22px}
+  .hstat{display:flex; flex-direction:column; align-items:flex-end; line-height:1.1}
+  .hstat b{font-family:var(--mono); font-size:16px; font-weight:600}
+  .hstat span{font-size:11px; color:var(--muted)}
+
+  /* ── shell ──────────────────────────────────────────────────────────── */
+  .shell{
+    display:grid; grid-template-columns:264px minmax(0,1fr) 336px;
+    height:calc(100vh - 58px);
+  }
+
+  /* ── left ───────────────────────────────────────────────────────────── */
+  .left{
+    border-right:1px solid var(--border); background:var(--panel);
+    padding:16px 14px; overflow-y:auto;
+  }
+  .block{margin-bottom:22px}
+  .block > .micro{display:block; margin-bottom:9px}
+  .kind-row{
+    display:flex; align-items:center; gap:9px; padding:5px 0;
+    font-size:13.5px; color:var(--text);
+  }
+  .dot{width:8px;height:8px;border-radius:50%;flex:0 0 auto}
+  .kind-row .n{margin-left:auto; font-family:var(--mono); font-size:12px; color:var(--muted)}
+  .kind-row .t{overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+
+  .chip{
+    display:flex; align-items:center; gap:8px; width:100%;
+    padding:7px 10px; margin-bottom:5px; border-radius:8px;
+    border:1px solid var(--border); background:transparent;
+    color:var(--text); font:inherit; font-size:13px; text-align:left;
+    cursor:pointer; transition:border-color .12s, background .12s;
+  }
+  .chip:hover{border-color:var(--border-2); background:var(--panel-2)}
+  .chip[aria-pressed="true"]{border-color:var(--sel); background:rgba(245,158,11,.09)}
+  .chip .n{margin-left:auto; font-family:var(--mono); font-size:12px; color:var(--muted)}
+  .chip[aria-pressed="true"] .n{color:var(--sel)}
+  .chip .sw{width:7px;height:7px;border-radius:50%}
+
+  /* ── centre ─────────────────────────────────────────────────────────── */
+  .center{display:flex; flex-direction:column; min-width:0; background:var(--canvas)}
+  .tabs{
+    display:flex; gap:2px; padding:9px 16px 0; border-bottom:1px solid var(--border);
+    background:var(--panel);
+  }
+  .tab{
+    padding:8px 14px; border:1px solid transparent; border-bottom:none;
+    border-radius:8px 8px 0 0; background:transparent; color:var(--muted);
+    font:inherit; font-size:13px; cursor:pointer;
+  }
+  .tab:hover{color:var(--text)}
+  .tab[aria-selected="true"]{
+    background:var(--canvas); color:var(--text); border-color:var(--border);
+    position:relative; top:1px;
+  }
+
+  .kpis{
+    display:grid; grid-template-columns:repeat(4,minmax(0,1fr));
+    gap:1px; background:var(--border); border-bottom:1px solid var(--border);
+  }
+  .kpi{background:var(--panel); padding:11px 16px 12px}
+  .kpi b{
+    display:block; font-family:var(--mono); font-size:22px; font-weight:600;
+    line-height:1.15; letter-spacing:-.01em;
+    font-variant-numeric:tabular-nums;
+  }
+  .kpi span{display:block; font-size:11.5px; color:var(--muted); margin-top:2px}
+  .kpi.warn b{color:var(--conflict)}
+
+  .pane{position:relative; flex:1; min-height:0; display:none}
+  .pane.on{display:block}
+
+  #graphPane{overflow:hidden}
+  svg{display:block; width:100%; height:100%; cursor:grab}
+  svg.dragging{cursor:grabbing}
+  .edge{stroke:rgba(255,255,255,.10); stroke-width:1}
+  .edge.depends{stroke:rgba(255,255,255,.20)}
+  .edge.conflict{stroke:var(--conflict); stroke-width:1.4; stroke-dasharray:4 3}
+  .node{cursor:pointer}
+  .node circle.core{stroke:none}
+  .node circle.glow{opacity:.09}
+  .node text{
+    font-family:var(--mono); font-size:10.5px; fill:#a3b0c4;
+    paint-order:stroke; stroke:#05070d; stroke-width:3px; stroke-linejoin:round;
+  }
+  .node.sec text{opacity:0; transition:opacity .12s}
+  .node.sec:hover text{opacity:1}
+  .node.dim{opacity:.14}
+  .node.sel text{fill:var(--text); font-size:12px; opacity:1}
+  .node.sel circle.ring{fill:none; stroke:var(--sel); stroke-width:1.6}
+
+  .canvas-hint{
+    position:absolute; left:14px; bottom:12px; display:flex; gap:8px;
+    font-family:var(--mono); font-size:10.5px; letter-spacing:.06em;
+    color:var(--micro); pointer-events:none;
+  }
+  .canvas-hint span + span::before{content:"·"; margin-right:8px; color:var(--border-2)}
+  .legend{
+    position:absolute; right:14px; bottom:12px; display:flex; gap:12px;
+    padding:7px 11px; border:1px solid var(--border); border-radius:8px;
+    background:rgba(10,15,24,.88);
+  }
+  .legend i{display:flex; align-items:center; gap:6px; font-style:normal; font-size:11px; color:var(--muted)}
+
+  /* wall */
+  #wallPane{overflow-y:auto; padding:18px}
+  .wall-grid{display:grid; grid-template-columns:repeat(auto-fill,minmax(232px,1fr)); gap:12px}
+  .card{
+    border:1px solid var(--border); border-radius:var(--r); background:var(--panel);
+    padding:13px 14px; cursor:pointer; transition:border-color .12s, transform .12s;
+  }
+  .card:hover{border-color:var(--border-2); transform:translateY(-1px)}
+  .card .k{font-family:var(--mono); font-size:10px; letter-spacing:.1em; text-transform:uppercase}
+  .card h3{margin:6px 0 5px; font-size:14px; font-weight:600; line-height:1.3}
+  .card p{margin:0; font-size:12.5px; color:var(--muted)}
+  .card .badge{margin-top:10px}
+
+  /* badges */
+  .badge{
+    display:inline-flex; align-items:center; gap:6px;
+    font-family:var(--mono); font-size:10px; letter-spacing:.08em; text-transform:uppercase;
+    padding:3px 8px; border-radius:20px; border:1px solid var(--border-2);
+    color:var(--muted);
+  }
+  .badge::before{content:""; width:6px; height:6px; border-radius:50%; background:currentColor}
+  .badge.current{color:var(--current)}
+  .badge.outdated{color:var(--outdated)}
+  .badge.duplicate{color:#9aa8bb}
+  .badge.conflict{color:var(--conflict); border-color:rgba(248,113,113,.4)}
+  .badge.unclear{color:var(--text); border-style:dashed}
+
+  /* ask */
+  #askPane{overflow-y:auto; padding:22px}
+  .ask-wrap{max-width:760px; margin:0 auto}
+  .ask-wrap h2{margin:0 0 6px; font-size:19px; font-weight:600; letter-spacing:-.01em}
+  .ask-wrap .sub{margin:0 0 18px; color:var(--muted); font-size:13.5px}
+  .qbox{display:flex; gap:9px}
+  .qbox input{
+    flex:1; padding:11px 13px; border-radius:9px; border:1px solid var(--border-2);
+    background:var(--panel); color:var(--text); font:inherit; font-size:14px;
+  }
+  .qbox input:focus{outline:none; border-color:var(--sel)}
+  .btn{
+    padding:11px 16px; border-radius:9px; border:1px solid var(--border-2);
+    background:var(--panel-2); color:var(--text); font:inherit; font-size:14px;
+    cursor:pointer; white-space:nowrap;
+  }
+  .btn:hover{border-color:var(--sel)}
+  .answer{
+    margin-top:20px; padding:16px 18px; border:1px solid var(--border);
+    border-radius:var(--r); background:var(--panel);
+  }
+  .answer p{margin:0 0 12px; font-size:14.5px; line-height:1.6}
+  .answer sup{font-family:var(--mono); font-size:11px; color:var(--sel)}
+  .cites{border-top:1px solid var(--border); padding-top:12px; display:grid; gap:7px}
+  .cite{display:flex; gap:9px; font-size:12.5px; color:var(--muted); align-items:baseline}
+  .cite .n{font-family:var(--mono); color:var(--sel); font-size:11px; flex:0 0 auto}
+  .cite button{
+    margin-left:auto; background:none; border:none; color:var(--micro);
+    font:inherit; font-size:11.5px; cursor:pointer; text-decoration:underline;
+    text-underline-offset:2px; padding:0;
+  }
+  .cite button:hover{color:var(--text)}
+  .ask-note{
+    margin-top:14px; font-size:12px; color:var(--micro);
+    display:flex; gap:8px; align-items:flex-start;
+  }
+
+  /* review */
+  #reviewPane{overflow-y:auto; padding:18px}
+  .review-list{display:grid; gap:10px; max-width:900px}
+  .rev{
+    border:1px solid var(--border); border-radius:var(--r); background:var(--panel);
+    padding:13px 15px;
+  }
+  .rev.conflict{border-color:rgba(248,113,113,.32)}
+  .rev-top{display:flex; align-items:center; gap:10px; margin-bottom:7px}
+  .rev-top h3{margin:0; font-size:14px; font-weight:600; flex:1; min-width:0;
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+  .rev .why{margin:0 0 4px; font-size:13px; color:var(--text)}
+  .rev .evid{margin:0 0 11px; font-size:12.5px; color:var(--muted);
+    padding-left:11px; border-left:2px solid var(--border-2)}
+  .rev .evid b{color:var(--micro); font-weight:500; font-family:var(--mono); font-size:10.5px;
+    letter-spacing:.08em; text-transform:uppercase; display:block; margin-bottom:2px}
+  .rev .acts{display:flex; gap:7px}
+  .act{
+    padding:6px 12px; border-radius:7px; border:1px solid var(--border-2);
+    background:transparent; color:var(--muted); font:inherit; font-size:12.5px; cursor:pointer;
+  }
+  .act:hover{color:var(--text); border-color:var(--sel)}
+  .act.primary{background:var(--sel); border-color:var(--sel); color:#1a1205; font-weight:600}
+  .act.primary:hover{color:#1a1205; filter:brightness(1.06)}
+
+  /* ── right detail ───────────────────────────────────────────────────── */
+  .right{
+    border-left:1px solid var(--border); background:var(--panel);
+    padding:18px; overflow-y:auto;
+  }
+  .right .empty{
+    height:100%; display:flex; flex-direction:column; align-items:center;
+    justify-content:center; text-align:center; gap:8px; color:var(--micro);
+    padding:24px;
+  }
+  .right .empty .big{font-size:15px; color:var(--muted)}
+  .right .empty .small{font-size:12.5px; max-width:230px; line-height:1.5}
+  .dhead .k{font-family:var(--mono); font-size:10px; letter-spacing:.12em; text-transform:uppercase}
+  .dhead h2{margin:7px 0 9px; font-size:17px; font-weight:600; line-height:1.28}
+  .dmeta{
+    margin:14px 0; padding-top:13px; border-top:1px solid var(--border);
+    display:grid; gap:9px;
+  }
+  .dmeta div{display:flex; gap:9px; font-size:12.5px; align-items:baseline}
+  .dmeta dt{color:var(--micro); font-family:var(--mono); font-size:10px;
+    letter-spacing:.1em; text-transform:uppercase; flex:0 0 74px}
+  .dmeta dd{margin:0; color:var(--muted); word-break:break-word}
+  .dsec{margin-top:16px; padding-top:14px; border-top:1px solid var(--border)}
+  .dsec .micro{display:block; margin-bottom:8px}
+  .dsec h4{margin:0 0 5px; font-size:13.5px; font-weight:600}
+  .dsec p{margin:0; font-size:13px; color:var(--muted); line-height:1.6}
+  .open-btn{
+    margin-top:18px; width:100%; padding:11px; border-radius:9px;
+    border:1px solid var(--border-2); background:var(--panel-2);
+    color:var(--text); font:inherit; font-size:13.5px; cursor:pointer;
+  }
+  .open-btn:hover{border-color:var(--sel)}
+
+  /* tooltip */
+  #tip{
+    position:fixed; z-index:50; pointer-events:none; opacity:0;
+    max-width:290px; padding:8px 11px; border-radius:8px;
+    border:1px solid var(--border-2); background:rgba(13,20,32,.96);
+    font-size:12px; color:var(--text); transition:opacity .1s;
+  }
+  #tip .t{font-weight:600; margin-bottom:2px}
+  #tip .s{color:var(--muted); font-size:11.5px}
+
+  .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+  @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+  @media (max-width:1180px){ .shell{grid-template-columns:220px minmax(0,1fr) 290px} }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand">
+    <h1>The Vault</h1>
+    <span class="tag">Every TVL document, one searchable picture</span>
+  </div>
+  <div class="spacer"></div>
+  <div class="head-stats" id="headStats"></div>
+</header>
+
+<div class="shell">
+
+  <!-- ── left ──────────────────────────────────────────────────────── -->
+  <aside class="left">
+    <div class="block">
+      <span class="micro">Documents</span>
+      <div id="kindList"></div>
+    </div>
+
+    <div class="block">
+      <span class="micro">Needs review</span>
+      <div id="flagChips"></div>
+    </div>
+
+    <div class="block">
+      <span class="micro">Graph</span>
+      <button class="chip" id="collapseBtn" aria-pressed="false">
+        <span class="sw" style="background:var(--text)"></span>
+        <span class="lbl">Show sections</span>
+        <span class="n" id="secCount"></span>
+      </button>
+      <button class="chip" id="reviewBtn" aria-pressed="false">
+        <span class="sw" style="background:var(--conflict)"></span>
+        Highlight needs review
+        <span class="n" id="revCount"></span>
+      </button>
+    </div>
+
+    <div class="block">
+      <span class="micro">How to read this</span>
+      <div style="font-size:12.5px;color:var(--muted);line-height:1.6">
+        Each dot is a document. A line means one document depends on another.
+        A red dashed line means two documents disagree.
+        Click a dot to read it.
+      </div>
+    </div>
+  </aside>
+
+  <!-- ── centre ────────────────────────────────────────────────────── -->
+  <section class="center">
+    <div class="tabs" role="tablist">
+      <button class="tab" role="tab" data-pane="graph" aria-selected="true">Graph</button>
+      <button class="tab" role="tab" data-pane="wall" aria-selected="false">Wall</button>
+      <button class="tab" role="tab" data-pane="ask" aria-selected="false">Ask</button>
+      <button class="tab" role="tab" data-pane="review" aria-selected="false">Review</button>
+    </div>
+
+    <div class="kpis" id="kpis"></div>
+
+    <div class="pane on" id="graphPane">
+      <svg id="graph" role="img" aria-label="Document relationship graph">
+        <g id="world"></g>
+      </svg>
+      <div class="legend" id="legend"></div>
+      <div class="canvas-hint">
+        <span>scroll to zoom</span><span>drag to move</span><span>double-click to isolate</span>
+      </div>
+    </div>
+
+    <div class="pane" id="wallPane"><div class="wall-grid" id="wallGrid"></div></div>
+
+    <div class="pane" id="askPane">
+      <div class="ask-wrap">
+        <h2>Ask the corpus</h2>
+        <p class="sub">Plain question. The answer comes only from your documents, and every line says which one.</p>
+        <div class="qbox">
+          <input id="q" type="text" value="What did the doctrine say about how to chunk a document?"
+                 aria-label="Question">
+          <button class="btn" id="askBtn">Ask</button>
+        </div>
+        <div class="answer" id="answer"></div>
+        <div class="ask-note">
+          <span>·</span>
+          <span>This is a mock-up: the answer and its sources are fixed samples. In the real thing the free Nous model writes the answer, and it is refused if the documents do not cover the question.</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="pane" id="reviewPane"><div class="review-list" id="reviewList"></div></div>
+  </section>
+
+  <!-- ── right ─────────────────────────────────────────────────────── -->
+  <aside class="right" id="detail"></aside>
+</div>
+
+<div id="tip"></div>
+
+<script>
+/* ════════════════════════════════════════════════════════════════════
+   SAMPLE DATA — real TVL document titles, real section headings, real
+   findings. In the product this object is the /graph JSON response.
+   ════════════════════════════════════════════════════════════════════ */
+const KIND = {doctrine:'#22d3ee', notes:'#a78bfa', papers:'#34d399', images:'#fbbf24'};
+const KIND_LABEL = {doctrine:'Doctrine', notes:'Notes', papers:'Papers', images:'Images'};
+const FLAG = {
+  current:  {c:'#4ade80', label:'Current'},
+  outdated: {c:'#94a3b8', label:'Outdated'},
+  duplicate:{c:'#64748b', label:'Duplicate'},
+  conflict: {c:'#f87171', label:'Disagrees'},
+  unclear:  {c:'#e8edf5', label:'Unclear'},
+};
+
+const DATA = {
+  documents: [
+    {id:'d1', title:'TVL — CIA of AI — Canonical Logic (v1.0)', short:'CIA of AI', kind:'doctrine', flag:'outdated',
+     path:'attachments/TVL — CIA of AI — Canonical Logic (v1.0).pdf',
+     why:'v1.0 — the v1.2 doctrine set replaces it',
+     evid:'Version: v1.0. Four v1.2 documents carry the same header block.'},
+    {id:'d2', title:'TVL — YouTube Equalizer Technology — Framework (v1.2)', short:'Equalizer Tech', kind:'doctrine', flag:'current',
+     path:'attachments/TVL — YouTube Equalizer Technology — Framework (v1.2).pdf',
+     why:'newest version, no contradiction found', evid:'Version: v1.2 — January 2026 Document.'},
+    {id:'d3', title:'TVL — YouTube — Platform Governance (v1.1)', short:'Platform Governance', kind:'doctrine', flag:'duplicate',
+     path:'attachments/TVL — YouTube — Platform Governance (v1.1).pdf',
+     why:'byte-identical copy also exists as a .docx',
+     evid:'Same 14 SECTION headings, same header block, same RAG tag block.'},
+    {id:'d4', title:'TVL—SAE Fiscal Architecture (v1.2)', short:'SAE Fiscal', kind:'doctrine', flag:'conflict',
+     path:'attachments/TVL—SAE Fiscal Architecture (v1.2).pdf',
+     why:'two documents state different budgets',
+     evid:'This one sets a $100.00 monthly allowance. Platform Governance sets a $300 total budget and an $80/mo January cap.'},
+    {id:'d5', title:'tvl-flywheel/docs/FLYWHEEL.md', short:'Flywheel', kind:'notes', flag:'current',
+     path:'work/tvl-flywheel/docs/FLYWHEEL.md',
+     why:'newest version, no contradiction found', evid:'Dated 2026-11-14.'},
+    {id:'d6', title:'tvl-crystal-ball/docs/PAPER-INGESTION.md', short:'Paper Ingestion', kind:'notes', flag:'current',
+     path:'work/tvl-crystal-ball/docs/PAPER-INGESTION.md',
+     why:'newest version, no contradiction found', evid:'Dated 2026-11-14.'},
+    {id:'d7', title:'graphRAG — From Local to Global (arXiv 2404.16130)', short:'graphRAG paper', kind:'papers', flag:'current',
+     path:'attachments/graphRAG-approach-to-query-focused-summarization.pdf',
+     why:'external paper, no version conflict', evid:'Single copy on disk.'},
+    {id:'d8', title:"TVL – Calvin's Shadow Access — Basic (Draft 0.1)", short:"Calvin's Shadow Access", kind:'notes', flag:'unclear',
+     path:"attachments/TVL – Calvin's Shadow Access - Basic (Draft 0.1).md",
+     why:'a draft; the canon it defines may have changed since it was written',
+     evid:'Version: v1.0 — December 2025. Marked "(Draft 0.1)".'},
+    {id:'d9', title:'TVL-Org Chart (Presentation) (2).png', short:'TVL Org Chart', kind:'images', flag:'unclear',
+     path:'attachments/TVL-Org Chart (Presentation) (2).png',
+     why:'image only — nothing to verify it against',
+     evid:'No text layer. Caption comes from a vision pass, not the file.'},
+  ],
+  sections: [
+    {doc:'d1', title:'1. RAG System Definition', body:'This is a Foundational Narrative Intelligence RAG. It provides the logic used to interpret facts into human-readable sense-making, and it enforces rigid reality-based constraints.'},
+    {doc:'d1', title:'2. The Canonical Section Map', body:'Integrates the ~110 pages of logic from the source materials into one cohesive structure, in 40+ sections.'},
+    {doc:'d1', title:'4. Explicit Failure Modes', body:'If an agent uses this RAG to generate a motivational post or a fictional story without grounding it in the Scored Story Engine, the system has failed.'},
+    {doc:'d2', title:'Story Units', body:'The atomic unit of content: one verifiable claim, one piece of evidence, one thing the audience can act on.'},
+    {doc:'d2', title:'Niche Fusion', body:'Two unrelated demand pools combined so the format can win both. Fusion is chosen by measured overlap, not by taste.'},
+    {doc:'d2', title:'Predictability Shield', body:'A gate that blocks any asset whose predicted performance falls below the threshold. It is a gate, not a hope.'},
+    {doc:'d3', title:'SECTION 0 — RAG Document Purpose, Scope, and Function', body:'Defines what this document is for, what it covers, and the boundary of its authority inside the doctrine set.'},
+    {doc:'d3', title:'SECTION 9 — Platform Risk and Constraint Map', body:'The enforced limits: budget, cadence, and the hard rules that stop an asset going out unreviewed.'},
+    {doc:'d4', title:'1. The Missing "Multiplier Gate" Formula', body:'The gate that decides whether a spend is authorised. Estimated RPM × target views ÷ total asset cost must clear 5x before GCP credit is released.'},
+    {doc:'d4', title:'3. Critical "Fiscal Landmine" Protections', body:'The $100.00 monthly allowance protocol and the hard refusals that keep a solo operator from an enterprise-scale bill.'},
+    {doc:'d5', title:'The one sentence', body:'One research run produces a validated product, a content pack and a paid endpoint — and the sales data from those feeds the next research run.'},
+    {doc:'d5', title:'The six stages', body:'Research ingest, product architecture, strategic validation, media factory, commerce, closed-loop telemetry. Each stage owns exactly one output.'},
+    {doc:'d6', title:'§2 The fields', body:'Every artifact carries identity, content extraction, buildability and cross-reference fields. Anything without a value is null, never guessed.'},
+    {doc:'d6', title:'§5 Buildability — how the score is computed', body:'score = 0.30·mechanic_clarity + 0.25·artifact_presence + 0.20·data_availability + 0.15·dependency_lightness + 0.10·evidence_strength. A paper with no code and no data cannot exceed 5.0.'},
+    {doc:'d7', title:'Indexing', body:'Chunk, extract entities, relationships and claims, build the graph, then run Leiden community detection and write bottom-up community summaries.'},
+    {doc:'d7', title:'Query-time map-reduce', body:'Global search maps the question across community summaries, then reduces the answers. Levels C0–C3 trade tokens against completeness.'},
+    {doc:'d8', title:'SECTION 1 — OVERVIEW & PURPOSE', body:'The story and shorts system: what it is, why it exists, and how the document should be used by an agent.'},
+    {doc:'d8', title:'SECTION 2 — CANON & WORLD RULES', body:'The tiered canon, the tone of the universe, and the locked character canon. This is the layer that stops drift.'},
+  ],
+  depends: [
+    ['d3','d2','depends on'],
+    ['d5','d6','built on'],
+    ['d8','d1','character canon from'],
+  ],
+  conflicts: [['d4','d3']],
+};
+
+/* ════════════════════════════════════════════════════════════════════
+   GRAPH
+   ════════════════════════════════════════════════════════════════════ */
+const W = 1000, H = 700;
+const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+const nodes = [], edges = [];
+DATA.documents.forEach((d, i) => {
+  nodes.push({id:d.id, label:d.title, shortLabel:d.short || d.title, kind:'document', group:d.kind, doc:d,
+              x: W/2 + Math.cos(i*2.399)*200, y: H/2 + Math.sin(i*2.399)*170, vx:0, vy:0, deg:0});
+});
+DATA.sections.forEach((s, i) => {
+  const id = 's' + i;
+  nodes.push({id, label:s.title, kind:'section', group:s.doc, sec:s,
+              x: W/2 + Math.cos(i*1.7)*260, y: H/2 + Math.sin(i*1.7)*230, vx:0, vy:0, deg:0});
+  edges.push({source:s.doc, target:id, kind:'contains', label:''});
+});
+DATA.depends.forEach(([a,b,label]) => edges.push({source:a, target:b, kind:'depends', label}));
+DATA.conflicts.forEach(([a,b]) => edges.push({source:a, target:b, kind:'conflict', label:'disagrees'}));
+
+const byId = new Map(nodes.map(n => [n.id, n]));
+edges.forEach(e => { const a=byId.get(e.source), b=byId.get(e.target); if(a&&b){a.deg++; b.deg++;} });
+
+function simulate(ticks) {
+  for (let t = 0; t < ticks; t++) {
+    // repulsion — kept low so the cluster holds together instead of flying apart
+    for (const n of nodes) for (const m of nodes) {
+      if (n === m) continue;
+      const dx = n.x - m.x, dy = n.y - m.y;
+      const d2 = dx*dx + dy*dy || 0.01;
+      const f = 620 / d2;
+      n.vx += dx * f * 0.018; n.vy += dy * f * 0.018;
+    }
+    // springs
+    for (const e of edges) {
+      const a = byId.get(e.source), b = byId.get(e.target);
+      if (!a || !b) continue;
+      const dx = b.x - a.x, dy = b.y - a.y;
+      const d = Math.sqrt(dx*dx + dy*dy) || 0.01;
+      const want = e.kind === 'contains' ? 78 : (e.kind === 'conflict' ? 210 : 165);
+      const f = (d - want) * 0.014;
+      a.vx += dx/d * f; a.vy += dy/d * f;
+      b.vx -= dx/d * f; b.vy -= dy/d * f;
+    }
+    // gravity toward the centre — without this the graph dies in the corners
+    for (const n of nodes) {
+      n.vx += (W/2 - n.x) * 0.0022;
+      n.vy += (H/2 - n.y) * 0.0022;
+    }
+    for (const n of nodes) {
+      n.vx *= 0.82; n.vy *= 0.82;
+      n.x = Math.max(46, Math.min(W-46, n.x + n.vx));
+      n.y = Math.max(34, Math.min(H-34, n.y + n.vy));
+    }
+  }
+}
+simulate(reduced ? 1 : 420);
+decollide();
+
+/* Push always-on document labels apart when their text boxes would overlap.
+   Only document nodes carry permanent labels, so 36 pairs is cheap. */
+function decollide() {
+  const docs = nodes.filter(n => n.kind === 'document');
+  for (let t = 0; t < 90; t++) {
+    let moved = false;
+    for (let i = 0; i < docs.length; i++) {
+      for (let j = i + 1; j < docs.length; j++) {
+        const a = docs[i], b = docs[j];
+        const wa = a.shortLabel.length * 6.1 + 14;
+        const wb = b.shortLabel.length * 6.1 + 14;
+        const dx = b.x - a.x, dy = b.y - a.y;
+        const need = (wa + wb) / 2 + 12;
+        if (Math.abs(dy) < 16 && Math.abs(dx) < need) {
+          const push = (need - Math.abs(dx)) / 2 * (dx >= 0 ? 1 : -1);
+          a.x = Math.max(46, Math.min(W - 46, a.x - push));
+          b.x = Math.max(46, Math.min(W - 46, b.x + push));
+          moved = true;
+        }
+      }
+    }
+    if (!moved) break;
+  }
+}
+
+/* ── render ─────────────────────────────────────────────────────────── */
+const NS = 'http://www.w3.org/2000/svg';
+const world = document.getElementById('world');
+const svg = document.getElementById('graph');
+const state = {sel:null, flag:null, hlReview:false, showSections:false, view:{}, k:1, tx:0, ty:0};
+
+function el(tag, attrs) {
+  const n = document.createElementNS(NS, tag);
+  for (const k in attrs) n.setAttribute(k, attrs[k]);
+  return n;
+}
+
+function build() {
+  world.textContent = '';
+  const visible = n => state.showSections || n.kind === 'document';
+  for (const e of edges) {
+    if (e.kind === 'contains' && !state.showSections) continue;
+    const a = byId.get(e.source), b = byId.get(e.target);
+    if (!visible(a) || !visible(b)) continue;
+    const ln = el('line', {class:'edge ' + e.kind,
+      x1:a.x, y1:a.y, x2:b.x, y2:b.y});
+    ln.dataset.s = e.source; ln.dataset.t = e.target;
+    world.appendChild(ln);
+  }
+  for (const n of nodes) {
+    if (!visible(n)) continue;
+    const g = el('g', {class:'node' + (n.kind === 'section' ? ' sec' : ''), transform:`translate(${n.x},${n.y})`});
+    g.dataset.id = n.id;
+    const r = n.kind === 'document' ? 5 + Math.min(8, n.deg) : 2.6 + Math.min(4, n.deg);
+    if (n.kind === 'document') g.appendChild(el('circle', {class:'glow', r:r*2.6, fill:KIND[n.group]}));
+    g.appendChild(el('circle', {class:'core', r, fill:n.kind==='document' ? KIND[n.group] : KIND[docOf(n).group]}));
+    if (n.id === state.sel) g.appendChild(el('circle', {class:'ring', r:r+4}));
+    const label = n.kind === 'document'
+      ? (n.doc.short || short(n.label))
+      : short(n.label);
+    // labels on the right half flip to the left of the dot, so nothing is
+    // clipped against the panel edge
+    const t = el('text', n.x > W * 0.60
+      ? {x:-(r+6), y:3.5, 'text-anchor':'end'}
+      : {x:r+6, y:3.5});
+    t.textContent = label;
+    g.appendChild(t);
+    g.addEventListener('click', ev => { ev.stopPropagation(); select(n.id); });
+    g.addEventListener('dblclick', ev => { ev.stopPropagation(); isolate(n.id); });
+    g.addEventListener('mousemove', ev => tip(ev, n));
+    g.addEventListener('mouseleave', hideTip);
+    world.appendChild(g);
+  }
+  applyDim();
+}
+function docOf(n) { return byId.get(n.group); }
+function short(s) { return s.length > 34 ? s.slice(0,33) + '…' : s; }
+
+function applyDim() {
+  world.querySelectorAll('.node').forEach(g => {
+    const n = byId.get(g.dataset.id);
+    let dim = false;
+    if (state.flag) dim = !(n.kind === 'document' && n.doc.flag === state.flag);
+    if (state.hlReview) dim = dim || !(n.kind === 'document' && n.doc.flag !== 'current');
+    g.classList.toggle('dim', dim);
+    g.classList.toggle('sel', g.dataset.id === state.sel);
+  });
+  world.querySelectorAll('.edge').forEach(l => {
+    const a = byId.get(l.dataset.s), b = byId.get(l.dataset.t);
+    l.style.opacity = (a && a._dimmed) ? .3 : 1;
+  });
+}
+
+/* ── tooltip ────────────────────────────────────────────────────────── */
+const tipEl = document.getElementById('tip');
+function tip(ev, n) {
+  const isDoc = n.kind === 'document';
+  const d = isDoc ? n.doc : byId.get(n.group).doc;
+  tipEl.innerHTML = `<div class="t">${esc(isDoc ? n.label : n.label)}</div>
+    <div class="s">${esc(d.title)} · ${FLAG[d.flag].label}</div>`;
+  tipEl.style.opacity = 1;
+  tipEl.style.left = Math.min(innerWidth - 300, ev.clientX + 14) + 'px';
+  tipEl.style.top = (ev.clientY + 14) + 'px';
+}
+function hideTip(){ tipEl.style.opacity = 0; }
+function esc(s){ return String(s).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+
+/* ── zoom / pan ─────────────────────────────────────────────────────── */
+function applyView(){ world.setAttribute('transform', `translate(${state.tx},${state.ty}) scale(${state.k})`); }
+svg.addEventListener('wheel', e => {
+  e.preventDefault();
+  const r = svg.getBoundingClientRect();
+  const mx = e.clientX - r.left, my = e.clientY - r.top;
+  const dk = e.deltaY < 0 ? 1.12 : 0.89;
+  const nk = Math.max(0.4, Math.min(3, state.k * dk));
+  state.tx = mx - (mx - state.tx) * (nk / state.k);
+  state.ty = my - (my - state.ty) * (nk / state.k);
+  state.k = nk; applyView();
+}, {passive:false});
+
+let drag = null;
+svg.addEventListener('mousedown', e => { drag = {x:e.clientX, y:e.clientY, tx:state.tx, ty:state.ty}; svg.classList.add('dragging'); });
+addEventListener('mousemove', e => {
+  if (!drag) return;
+  state.tx = drag.tx + (e.clientX - drag.x);
+  state.ty = drag.ty + (e.clientY - drag.y);
+  applyView();
+});
+addEventListener('mouseup', () => { drag = null; svg.classList.remove('dragging'); });
+svg.addEventListener('click', () => { state.sel = null; renderDetail(null); build(); });
+
+function isolate(id) {
+  const keep = new Set([id]);
+  edges.forEach(e => { if (e.source === id) keep.add(e.target); if (e.target === id) keep.add(e.source); });
+  world.querySelectorAll('.node').forEach(g => g.classList.toggle('dim', !keep.has(g.dataset.id)));
+}
+
+/* fit the whole cluster into the canvas instead of leaving it in a band */
+function fitView() {
+  // only the nodes actually on screen — hidden sections would stretch the box
+  const vis = nodes.filter(n => state.showSections || n.kind === 'document');
+  const xs = vis.map(n => n.x), ys = vis.map(n => n.y);
+  const minX = Math.min.apply(null, xs), maxX = Math.max.apply(null, xs);
+  const minY = Math.min.apply(null, ys), maxY = Math.max.apply(null, ys);
+  const pad = 66;
+  const bw = Math.max(1, maxX - minX) + pad * 2;
+  const bh = Math.max(1, maxY - minY) + pad * 2;
+  const k = Math.min(W / bw, H / bh, 1.5);
+  state.k = k;
+  state.tx = W/2 - ((minX + maxX) / 2) * k;
+  state.ty = H/2 - ((minY + maxY) / 2) * k;
+  applyView();
+}
+
+/* ── selection + right panel ────────────────────────────────────────── */
+function select(id) {
+  state.sel = id;
+  const n = byId.get(id);
+  build();
+  renderDetail(n);
+}
+function renderDetail(n) {
+  const box = document.getElementById('detail');
+  if (!n) {
+    box.innerHTML = `<div class="empty">
+      <div class="big">Click any dot to read it here</div>
+      <div class="small">The plain-language summary, the reason for its status, and the exact place in the source document.</div>
+    </div>`;
+    return;
+  }
+  if (n.kind === 'section') {
+    const d = byId.get(n.group).doc;
+    box.innerHTML = `
+      <div class="dhead">
+        <div class="k" style="color:${KIND[d.kind]}">${KIND_LABEL[d.kind]} · section</div>
+        <h2>${esc(n.label)}</h2>
+        <span class="badge ${d.flag}">${FLAG[d.flag].label}</span>
+      </div>
+      <div class="dmeta">
+        <div><dt>Document</dt><dd>${esc(d.title)}</dd></div>
+        <div><dt>File</dt><dd>${esc(d.path)}</dd></div>
+      </div>
+      <div class="dsec">
+        <span class="micro">What it says</span>
+        <p>${esc(n.sec.body)}</p>
+      </div>
+      <button class="open-btn" onclick="select('${d.id}')">Back to the document</button>`;
+    return;
+  }
+  const d = n.doc;
+  const secs = DATA.sections.filter(s => s.doc === d.id);
+  box.innerHTML = `
+    <div class="dhead">
+      <div class="k" style="color:${KIND[d.kind]}">${KIND_LABEL[d.kind]}</div>
+      <h2>${esc(d.title)}</h2>
+      <span class="badge ${d.flag}">${FLAG[d.flag].label}</span>
+    </div>
+    <div class="dmeta">
+      <div><dt>Status</dt><dd>${esc(d.why)}</dd></div>
+      <div><dt>Evidence</dt><dd>${esc(d.evid)}</dd></div>
+      <div><dt>File</dt><dd>${esc(d.path)}</dd></div>
+      <div><dt>Sections</dt><dd>${secs.length ? secs.length : 'none extractable'}</dd></div>
+    </div>
+    ${secs.length ? `<div class="dsec"><span class="micro">Relevant sections</span>${secs.map(s =>
+      `<h4 style="margin-top:11px"><a href="#" onclick="select('s${DATA.sections.indexOf(s)}');return false"
+        style="color:inherit;text-decoration:none">${esc(s.title)}</a></h4>`).join('')}</div>` : ''}
+    <button class="open-btn" onclick="alert('In the real thing this opens the source file.')">Open the source document</button>`;
+}
+
+/* ── left rail ──────────────────────────────────────────────────────── */
+function renderLeft() {
+  const kinds = ['doctrine','notes','papers','images'];
+  document.getElementById('kindList').innerHTML = kinds.map(k => {
+    const items = DATA.documents.filter(d => d.kind === k);
+    if (!items.length) return '';
+    return `<div class="kind-row"><span class="dot" style="background:${KIND[k]}"></span>
+      <span class="t">${KIND_LABEL[k]}</span><span class="n">${items.length}</span></div>`;
+  }).join('');
+
+  const order = ['conflict','outdated','duplicate','unclear','current'];
+  document.getElementById('flagChips').innerHTML = order.map(f => {
+    const n = DATA.documents.filter(d => d.flag === f).length;
+    return `<button class="chip" data-flag="${f}" aria-pressed="false">
+      <span class="sw" style="background:${FLAG[f].c}"></span>${FLAG[f].label}<span class="n">${n}</span></button>`;
+  }).join('');
+  document.querySelectorAll('#flagChips .chip').forEach(b => b.addEventListener('click', () => {
+    const f = b.dataset.flag;
+    state.flag = (state.flag === f) ? null : f;
+    document.querySelectorAll('#flagChips .chip').forEach(x =>
+      x.setAttribute('aria-pressed', String(x.dataset.flag === state.flag)));
+    build();
+  }));
+
+  const rev = DATA.documents.filter(d => d.flag !== 'current').length;
+  document.getElementById('revCount').textContent = rev;
+  document.getElementById('secCount').textContent = DATA.sections.length;
+}
+
+/* ── centre panes ───────────────────────────────────────────────────── */
+function renderKpis() {
+  const docs = DATA.documents.length;
+  const secs = DATA.sections.length;
+  const rev = DATA.documents.filter(d => d.flag !== 'current').length;
+  const dup = DATA.documents.filter(d => d.flag === 'duplicate').length;
+  const conflict = DATA.documents.filter(d => d.flag === 'conflict').length;
+  document.getElementById('kpis').innerHTML = `
+    <div class="kpi"><b>${docs}</b><span>documents indexed</span></div>
+    <div class="kpi"><b>${secs}</b><span>sections read</span></div>
+    <div class="kpi warn"><b>${rev}</b><span>need a decision</span></div>
+    <div class="kpi"><b>${dup + conflict}</b><span>duplicates or disagreements</span></div>`;
+  document.getElementById('headStats').innerHTML = `
+    <div class="hstat"><b>${docs}</b><span>documents</span></div>
+    <div class="hstat"><b>${secs}</b><span>sections</span></div>
+    <div class="hstat"><b style="color:var(--conflict)">${rev}</b><span>need review</span></div>`;
+  document.getElementById('legend').innerHTML = Object.keys(KIND).map(k =>
+    `<i><span class="dot" style="background:${KIND[k]}"></span>${KIND_LABEL[k]}</i>`).join('') +
+    `<i><span style="width:16px;height:0;border-top:1px solid rgba(255,255,255,.35);display:inline-block"></span>depends on</i>` +
+    `<i><span style="width:16px;height:0;border-top:1.4px dashed var(--conflict);display:inline-block"></span>disagrees</i>`;
+}
+
+function renderWall() {
+  document.getElementById('wallGrid').innerHTML = DATA.documents.map(d => `
+    <div class="card" onclick="select('${d.id}')">
+      <div class="k" style="color:${KIND[d.kind]}">${KIND_LABEL[d.kind]}</div>
+      <h3>${esc(d.title)}</h3>
+      <p>${esc(d.why)}</p>
+      <div class="badge ${d.flag}">${FLAG[d.flag].label}</div>
+    </div>`).join('');
+}
+
+const SAMPLE_ANSWER = {
+  q: 'What did the doctrine say about how to chunk a document?',
+  a: `It is explicit: chunk at the <em>section header</em> level, and fetch the whole section rather than a fragment of tokens. The reason given is that a section is the smallest unit that keeps its logic intact — a rule separated from its reasoning stops being a rule.<sup>[1]</sup><br><br>
+      The same document says the corpus is not for entertainment-first content and not for advice, which is why the Vault treats a section as the unit of evidence rather than the unit of search.<sup>[2]</sup>`,
+  cites: [
+    {n:1, title:'TVL — CIA of AI — Canonical Logic (v1.0)', sec:'1.4 Structural Design & Retrieval Assumptions', path:'attachments/TVL — CIA of AI — Canonical Logic (v1.0).pdf'},
+    {n:2, title:'TVL — CIA of AI — Canonical Logic (v1.0)', sec:'1.3 Explicit Non-Uses (Prohibitions)', path:'attachments/TVL — CIA of AI — Canonical Logic (v1.0).pdf'},
+  ],
+};
+function renderAnswer() {
+  document.getElementById('answer').innerHTML = `
+    <p>${SAMPLE_ANSWER.a}</p>
+    <div class="cites">${SAMPLE_ANSWER.cites.map(c => `
+      <div class="cite"><span class="n">[${c.n}]</span>
+        <span><b style="color:var(--text);font-weight:600">${esc(c.sec)}</b><br>${esc(c.title)}</span>
+        <button onclick="alert('In the real thing this opens ${esc(c.path)}')">open</button>
+      </div>`).join('')}</div>`;
+}
+
+function renderReview() {
+  // worst first: a disagreement outranks a duplicate, which outranks a draft
+  const sev = {conflict:0, outdated:1, duplicate:2, unclear:3};
+  const act = {conflict:'Resolve conflict', outdated:'Confirm outdated',
+               duplicate:'Confirm duplicate', unclear:'Confirm unclear'};
+  const rows = DATA.documents.filter(d => d.flag !== 'current')
+                            .sort((a,b) => sev[a.flag] - sev[b.flag]);
+  document.getElementById('reviewList').innerHTML = rows.length ? rows.map(d => `
+    <div class="rev ${d.flag}">
+      <div class="rev-top">
+        <span class="dot" style="background:${KIND[d.kind]}"></span>
+        <h3>${esc(d.title)}</h3>
+        <span class="badge ${d.flag}">${FLAG[d.flag].label}</span>
+      </div>
+      <p class="why">${esc(d.why)}</p>
+      <p class="evid"><b>Evidence</b>${esc(d.evid)}</p>
+      <div class="acts">
+        <button class="act primary" onclick="alert('${esc(act[d.flag])} — recorded in the corrections table.')">${esc(act[d.flag])}</button>
+        <button class="act" onclick="alert('Marked current. Recorded in the corrections table.')">Mark current</button>
+        <button class="act" onclick="select('${d.id}')">Read it</button>
+      </div>
+    </div>`).join('')
+    : `<div class="rev"><p class="why">Nothing needs a decision. Every document is current.</p></div>`;
+}
+
+/* ── tabs + toggles ─────────────────────────────────────────────────── */
+document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () => {
+  document.querySelectorAll('.tab').forEach(x => x.setAttribute('aria-selected', String(x === t)));
+  document.querySelectorAll('.pane').forEach(p => p.classList.toggle('on', p.id === t.dataset.pane + 'Pane'));
+}));
+
+document.getElementById('collapseBtn').addEventListener('click', function() {
+  state.showSections = !state.showSections;
+  this.setAttribute('aria-pressed', String(state.showSections));
+  this.querySelector('.lbl').textContent = state.showSections ? 'Hide sections' : 'Show sections';
+  build();
+  fitView();
+});
+document.getElementById('reviewBtn').addEventListener('click', function() {
+  state.hlReview = !state.hlReview;
+  this.setAttribute('aria-pressed', String(state.hlReview));
+  build();
+});
+document.getElementById('askBtn').addEventListener('click', renderAnswer);
+
+/* ── boot ───────────────────────────────────────────────────────────── */
+renderLeft(); renderKpis(); renderWall(); renderReview();
+// open on the one real finding, so the first thing seen is the point of the tool
+state.sel = 'd4';
+renderDetail(byId.get('d4'));
+build();
+fitView();
+</script>
+</body>
+</html>
