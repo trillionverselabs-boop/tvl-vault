@@ -14,6 +14,11 @@ from __future__ import annotations
 import json
 import re
 import sqlite3
+from pathlib import Path
+
+from .paths import data_root
+
+FLAG_ORDER = ["conflict", "outdated", "duplicate", "unclear", "current"]
 
 
 def _version_tuple(v: str) -> tuple[int, int] | None:
@@ -94,3 +99,97 @@ def write_flags(db: sqlite3.Connection, flags: list[dict]) -> None:
 def conflicts(db: sqlite3.Connection) -> list[dict]:
     """Pairs of sections that contradict. Model-assisted; see Task 10. Empty until then."""
     return []
+
+
+# ── corrections ─────────────────────────────────────────────────────────
+# A decision is never written back into a source file (rule 4). It lives here:
+# `corrections` is the human's answer to a flag, and `resolved` replaces the
+# flag's effect everywhere it is read. The source keeps its original bytes.
+
+_CORRECTIONS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS corrections (
+  doc_id    TEXT PRIMARY KEY,
+  flag      TEXT NOT NULL,
+  action    TEXT NOT NULL,
+  note      TEXT DEFAULT '',
+  created_at TEXT DEFAULT (datetime('now'))
+)
+"""
+
+
+def correction_path() -> Path:
+    """Where the review decisions are kept: beside the index, in the data root."""
+    return data_root() / "corrections.jsonl"
+
+
+def write_correction(db: sqlite3.Connection, doc_id: str, flag: str,
+                     action: str, note: str = "") -> dict:
+    """Record one review decision. Idempotent per document.
+
+    Keyed on `doc_id`, not on `(doc_id, flag)`: a document's status is one
+    decision. A `(doc_id, flag)` key would let confirming the duplicate flag
+    silently erase a decision already taken on the same document's other flag.
+    """
+    db.executescript(_CORRECTIONS_SCHEMA)
+    db.execute(
+        "INSERT INTO corrections(doc_id, flag, action, note) VALUES(?,?,?,?) "
+        "ON CONFLICT(doc_id) DO UPDATE SET flag=excluded.flag, action=excluded.action, "
+        "note=excluded.note, created_at=datetime('now')",
+        (doc_id, flag, action, note),
+    )
+    db.commit()
+    row = db.execute(
+        "SELECT doc_id, flag, action, note, created_at FROM corrections WHERE doc_id=?",
+        (doc_id,)).fetchone()
+    _append_jsonl({
+        "doc_id": doc_id, "flag": flag, "action": action,
+        "note": note, "created_at": row["created_at"],
+    })
+    return dict(row)
+
+
+def _append_jsonl(record: dict) -> None:
+    """Mirror each decision to a JSONL log, so a lost DB still has the history."""
+    try:
+        correction_path().parent.mkdir(parents=True, exist_ok=True)
+        with correction_path().open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(record, ensure_ascii=False) + "\n")
+    except OSError:
+        pass          # the DB row is the record; the log is a convenience
+
+
+def corrections(db: sqlite3.Connection) -> list[dict]:
+    """Every recorded decision, newest first."""
+    db.executescript(_CORRECTIONS_SCHEMA)
+    return [dict(r) for r in db.execute(
+        "SELECT doc_id, flag, action, note, created_at FROM corrections "
+        "ORDER BY created_at DESC, doc_id")]
+
+
+def resolved_doc_ids(db: sqlite3.Connection) -> set[str]:
+    """Documents the human has decided on. `confirm` clears their flags; `keep`
+    leaves them on the queue so the next reviewer sees them again."""
+    db.executescript(_CORRECTIONS_SCHEMA)
+    out: set[str] = set()
+    for row in db.execute("SELECT doc_id, action FROM corrections"):
+        if row["action"] in ("confirm", "edit"):
+            out.add(row["doc_id"])
+    return out
+
+
+def queue(db: sqlite3.Connection) -> list[dict]:
+    """The review queue as the UI should show it.
+
+    `resolved_doc_ids` is applied here, once, so every reader (the /review route,
+    the CLI summary) agrees: a confirmed document leaves the queue and is shown
+    as current; a `keep` decision stays.
+    """
+    done = resolved_doc_ids(db)
+    rows = db.execute(
+        "SELECT f.doc_id, f.flag, f.reason, f.evidence, d.title, d.path, d.kind "
+        "FROM flags f JOIN documents d ON d.doc_id=f.doc_id "
+        "WHERE f.flag!='current' ORDER BY f.flag").fetchall()
+    sev = {"conflict": 0, "outdated": 1, "duplicate": 2, "unclear": 3}
+    flags = [dict(r) for r in rows if r["doc_id"] not in done]
+    flags.sort(key=lambda f: sev.get(f["flag"], 9))
+    return flags
