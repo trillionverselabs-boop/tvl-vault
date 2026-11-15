@@ -49,8 +49,8 @@ Run twice in a row, identical counts (idempotent).
 **The wall (task 9):** 199 images → **116 shown, 83 test screenshots** (counted, not
 listed, never sent to the model). 0 unreadable dimensions. Review queue **101**
 (58 duplicate + 43 unclear), **0 images**.
+
 Verified searches: `sabotage` → *Paper & Claim Verification Report* §2.2 "Tournament sabotage" · `chunking` → *TVL — CIA of AI — Canonical Logic (v1.0)* §RAG System Definition · `budget` → *Validize Research Pipeline v2*.
-`python -m vault stats --db <file>` prints the same numbers without writing anything.
 
 **Corpus roots:** `~/.hermes/profiles/charlene/attachments` · `/home/lisacore/work` · `/home/lisacore/Projects` · `/home/lisacore/work/tvl-ingest` (4 roots; the last is added only when it exists, and `HERMES_VAULT_ROOTS` overrides all of them)
 **New corpus landed 2026-11-14:** `/home/lisacore/work/tvl-ingest/Trillionverselabs vision/` — 25 PDFs, 51 MB, already indexed.
