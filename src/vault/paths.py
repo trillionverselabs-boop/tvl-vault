@@ -22,6 +22,11 @@ EXCLUDED_DIR_NAMES = {
     ".ruff_cache", ".pytest_cache", "dist", "build", ".cache",
 }
 
+# The plugin's own repository. It lives inside ~/work, which is a corpus root,
+# so without this the Vault indexes its own plan, handoff and tests — and its
+# notes about the doctrine then outrank the doctrine itself.
+SELF_DIR_NAMES = {PLUGIN_ID}
+
 
 def _hermes_home() -> Path:
     try:
@@ -46,6 +51,10 @@ def data_root() -> Path:
 
 
 def vault_db_path() -> Path:
+    """The index file. `HERMES_VAULT_DB` overrides it — tests point it elsewhere."""
+    override = os.environ.get("HERMES_VAULT_DB")
+    if override:
+        return Path(override)
     return data_root() / "vault.db"
 
 
@@ -61,4 +70,5 @@ def corpus_roots() -> list[Path]:
 
 
 def is_excluded_dir(name: str) -> bool:
-    return name in EXCLUDED_DIR_NAMES or name.startswith(".")
+    """Build output, dot-directories, and the plugin's own repository."""
+    return name in EXCLUDED_DIR_NAMES or name in SELF_DIR_NAMES or name.startswith(".")

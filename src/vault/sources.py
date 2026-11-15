@@ -48,7 +48,14 @@ def is_junk_name(name: str) -> bool:
 
 
 def scan(root: Path) -> list[Document]:
-    """Every supported file under *root*, with byte-identical duplicates collapsed."""
+    """Every supported file under *root*, duplicates collapsed.
+
+    Two passes. Byte-identical files collapse by sha256. Then a browser's
+    download suffix — `doc (1).pdf`, `doc-2.pdf` — collapses onto the plain
+    name: those copies are the same document saved twice, but their bytes
+    differ (PDF metadata), so sha256 alone keeps them apart and the same
+    doctrine ends up indexed three times.
+    """
     by_hash: dict[str, list[Path]] = {}
     for p in sorted(root.rglob("*")):
         if not p.is_file() or kind_of(p) == "other":
@@ -57,11 +64,35 @@ def scan(root: Path) -> list[Document]:
             continue
         h = hashlib.sha256(p.read_bytes()).hexdigest()
         by_hash.setdefault(h, []).append(p)
+
+    # name key -> canonical path. First (sorted) path wins, so `doc.pdf` beats
+    # `doc (1).pdf`, which sorts after it.
+    by_name: dict[tuple[str, str], Path] = {}
     docs: list[Document] = []
     for h, paths in by_hash.items():
         canonical = paths[0]
+        key = (kind_of(canonical), _name_key(canonical.name))
+        taken = by_name.get(key)
+        if taken is not None:
+            # fold this copy's whole hash group into the canonical document
+            existing = next(d for d in docs if d.path == taken)
+            existing.duplicates.extend([canonical] + paths[1:])
+            continue
+        by_name[key] = canonical
         docs.append(Document(
             path=canonical, kind=kind_of(canonical), sha256=h, size=canonical.stat().st_size,
             is_junk=is_junk_name(canonical.name), duplicates=paths[1:],
         ))
     return docs
+
+
+# `name (1)`, `name-2`, `name 1` — a browser's second download of the same file.
+_DOWNLOAD_SUFFIX_RE = re.compile(r"^(.*?)\s*(?:\(\d+\)|[-_ ]\d+)$")
+
+
+def _name_key(name: str) -> str:
+    """The filename with any download counter removed, for duplicate matching."""
+    stem = Path(name).stem
+    m = _DOWNLOAD_SUFFIX_RE.match(stem)
+    base = m.group(1).strip() if m else stem
+    return re.sub(r"\s+", " ", base).strip().lower()
