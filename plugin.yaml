@@ -1,0 +1,18 @@
+name: tvl-vault
+version: "0.1.0"
+manifest_version: 1
+kind: standalone
+requires_hermes: ">=0.23.0"
+author: TrillionVerse Labs
+license: MIT
+homepage: https://github.com/trillionverselabs-boop/tvl-vault
+tags: [knowledge-base, search, graph, local-first, research]
+description: >-
+  The Vault — one indexed, visually searchable home for the whole TVL corpus:
+  every document sectioned, deduplicated and flagged CURRENT / OUTDATED /
+  DUPLICATE / CONFLICT / UNCLEAR, shown as a graph, a card wall and a cited
+  question-answering view. Local-first, no account, no telemetry.
+provides_tools: []
+# No `capabilities:` block: the plugin asks the host for nothing special.
+# No `python_dependencies`: everything is stdlib + poppler, and a non-empty list
+# makes the desktop's non-interactive install refuse its consent prompt.
