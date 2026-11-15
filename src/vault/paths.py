@@ -58,14 +58,36 @@ def vault_db_path() -> Path:
     return data_root() / "vault.db"
 
 
+def _home_note_root() -> Path | None:
+    """The ingest drop zone, if it exists.
+
+    It is a *sibling* of the corpus roots, not a replacement: it holds the
+    `Trillionverselabs vision/` PDFs that landed on 2026-11-14. Optional, and
+    only when it is really there — a test that points HERMES_HOME at a throwaway
+    tree must not inherit the real one.
+    """
+    p = Path("/home/lisacore/work/tvl-ingest")
+    return p if p.is_dir() else None
+
+
 def corpus_roots() -> list[Path]:
-    """Existing source directories, in priority order. Missing ones are skipped."""
+    """Existing source directories, in priority order. Missing ones are skipped.
+
+    The first root is the profile's own attachments (where the desktop puts
+    anything you hand it). The note trees are pinned to this machine's home
+    because they are Lisa's real folders; `HERMES_VAULT_ROOTS` overrides them
+    wholesale for a test or a second machine, and `HERMES_HOME` replaces the
+    attachments root.
+    """
     home = _hermes_home()
-    candidates = [
-        home / "attachments",
-        Path("/home/lisacore/work"),
-        Path("/home/lisacore/Projects"),
-    ]
+    override = os.environ.get("HERMES_VAULT_ROOTS")
+    if override:
+        return [Path(x) for x in override.split(os.pathsep) if x and Path(x).is_dir()]
+    candidates = [home / "attachments", Path("/home/lisacore/work"),
+                  Path("/home/lisacore/Projects")]
+    note = _home_note_root()
+    if note is not None:
+        candidates.append(note)
     return [c for c in candidates if c.is_dir()]
 
 
