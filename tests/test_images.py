@@ -274,3 +274,29 @@ def test_an_image_is_never_captioned_by_the_flag_pass(tmp_path, monkeypatch):
 
     monkeypatch.setattr(images, "caption", Boom().complete_structured)
     review.compute_flags(db)
+
+
+def test_a_byte_identical_image_is_not_put_on_the_review_queue(tmp_path):
+    """The fixture above has no duplicate image, so it passed while the real
+    corpus put 60 images on the queue as `duplicate`.
+
+    A duplicate *flag* is a fact worth recording — `/stats` counts it — but a
+    duplicate *decision* is for a human looking at text. A picture has nothing
+    to keep, confirm or edit, so it stays off the queue.
+    """
+    root = tmp_path / "corpus"
+    root.mkdir()
+    data = _png(32, 32, tag=b"\x33")
+    (root / "calvin.png").write_bytes(data)
+    (root / "calvin-copy.png").write_bytes(data)      # byte-identical
+    (root / "doctrine.md").write_text("# Alpha\n\nbody\n")
+    db = index.rebuild([root], tmp_path / "vault.db")
+    review.write_flags(db, review.compute_flags(db))
+
+    assert db.execute("SELECT COUNT(*) FROM duplicates").fetchone()[0] == 1, \
+        "the fixture must actually contain a duplicate"
+    q = review.queue(db)
+    image_ids = {r[0] for r in db.execute("SELECT doc_id FROM documents WHERE kind='image'")}
+    assert image_ids, "the fixture must contain an image"
+    assert not ({f["doc_id"] for f in q} & image_ids), \
+        f"an image is on the review queue: {[f for f in q if f['doc_id'] in image_ids]}"

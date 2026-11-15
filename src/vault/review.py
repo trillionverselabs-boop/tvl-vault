@@ -190,13 +190,22 @@ def queue(db: sqlite3.Connection) -> list[dict]:
     `resolved_doc_ids` is applied here, once, so every reader (the /review route,
     the CLI summary) agrees: a confirmed document leaves the queue and is shown
     as current; a `keep` decision stays.
+
+    Images are left out entirely. The deterministic pass records a byte-identical
+    image as a `duplicate` flag — that is a fact, and `/stats` still counts it —
+    but a duplicate *decision* is for a human reading text. On the real corpus
+    60 of the 118 duplicate flags were images, so the queue was two-thirds
+    pictures nobody could keep, confirm or edit.
     """
     done = resolved_doc_ids(db)
+    image_ids = {r[0] for r in db.execute(
+        "SELECT doc_id FROM documents WHERE kind='image'")}
     rows = db.execute(
         "SELECT f.doc_id, f.flag, f.reason, f.evidence, d.title, d.path, d.kind "
         "FROM flags f JOIN documents d ON d.doc_id=f.doc_id "
         "WHERE f.flag!='current' ORDER BY f.flag").fetchall()
     sev = {"conflict": 0, "outdated": 1, "duplicate": 2, "unclear": 3}
-    flags = [dict(r) for r in rows if r["doc_id"] not in done]
+    flags = [dict(r) for r in rows
+             if r["doc_id"] not in done and r["doc_id"] not in image_ids]
     flags.sort(key=lambda f: sev.get(f["flag"], 9))
     return flags
