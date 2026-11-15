@@ -17,8 +17,18 @@ EXT_KIND = {
 
 # Plugin-test screenshots and build screenshots: index them as artifacts so the
 # graph does not silently drop them, but never treat them as doctrine.
+#
+# The serial part is bounded (`[a-z0-9_]*`, not `.*`) so a real picture whose
+# name merely starts with a family word — `popupshire.png` — stays content.
+# The browser's re-download counter (`popupd1-2`, `popupd (1)`) is part of the
+# serial, which is why the old `$`-anchored `popup` pattern missed ten files.
 JUNK_PATTERNS = [
-    r"^plugintest", r"^plugin\d", r"^pluginblogtest", r"^popup[a-z0-9_]*$",
+    r"^plugintest", r"^plugin\d", r"^pluginblogtest",
+    # `popup` + one letter (a–d on disk) + an optional serial: `popupd`,
+    # `popupd1`, `popupd_small`, `popupd1-2`. The letter is a single character
+    # and the tail is only digits/`_small`/a download counter, so a real picture
+    # named `popupshire` (letter `s` + letters) is not caught.
+    r"^popup[a-z](?:_small|\d{0,3}(?:[-_ ]\d{1,3})?)$",
     r"^readme\d", r"^b\d_part\d", r"^s\d+$",
 ]
 

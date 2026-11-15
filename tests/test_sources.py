@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 from vault import sources
 
 
@@ -40,6 +42,27 @@ def test_junk_screenshots_are_flagged_not_dropped(tmp_path):
     docs = {d.path.name: d for d in sources.scan(tmp_path)}
     assert docs["plugintest5a.jpg"].is_junk is True
     assert docs["calvin.png"].is_junk is False
+
+
+# `popup` is one family of plugin-test screenshot (the plan's junk list:
+# "~130 `plugintest*` / `plugin*` / `popup*` / `readme*` screenshots"). The old
+# pattern `^popup[a-z0-9_]*$` matched `popupd3.jpg` but not the browser's
+# re-download `popupd1-2.jpg`, so ten real screenshots were shown on the wall
+# and offered to the caption model. The family is `popup` followed by its
+# serial — digits, `_small`, or a download counter — and nothing else.
+@pytest.mark.parametrize("name", [
+    "popupd1-2.jpg", "popupc-2.jpg", "popupd_small.png", "popupd14-2.jpg",
+])
+def test_a_popup_screenshot_is_junk_whatever_the_browser_appended(name):
+    assert sources.is_junk_name(name) is True, name
+
+
+@pytest.mark.parametrize("name", [
+    "popupshire.png",      # a real picture that merely starts with "popup"
+    "calvin.png", "orgchart.jpg", "validizea.jpg",
+])
+def test_a_real_image_is_not_junk(name):
+    assert sources.is_junk_name(name) is False, name
 
 
 def test_excluded_directories_are_skipped(tmp_path):
