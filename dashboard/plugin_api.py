@@ -196,6 +196,32 @@ async def review_queue() -> dict:
     return {"flags": _review.queue(db)}
 
 
+@router.post("/conflicts")
+async def find_conflicts() -> dict:
+    """Run the model-assisted conflict pass, on demand.
+
+    A POST because it spends model calls and writes flags — a GET that did
+    either would be a side effect on a read, and a rebuild that did it would
+    make the $0 refresh command cost money and break when the free model is
+    throttled. The Review tab offers the run; nothing calls it automatically.
+
+    The pass is capped at `review.MAX_CONFLICT_PAIRS` (200) pairs, runs at
+    temperature 0 on the session model, never re-asks a pair it has already
+    recorded, and never re-asks a pair the human has decided on. A model that
+    is not bound gets a clear 503 rather than a silent skip.
+    """
+    llm = get_llm()
+    if llm is None:
+        raise HTTPException(503, "no model is bound in this process — reload the plugin")
+    db = _db()
+    flags = _review.conflicts(db, llm)
+    return {
+        "conflicts": flags,
+        "pairs": _review.pairs_asked(db),
+        "queue": _review.queue(db),
+    }
+
+
 @router.get("/corrections")
 async def correction_log() -> dict:
     """Every recorded review decision, newest first."""

@@ -178,6 +178,9 @@ const CSS = `
   .vz-note{margin-top:14px;font-size:12px;color:var(--vz-micro);display:flex;gap:8px;align-items:flex-start}
   .vz-review{overflow-y:auto;padding:18px}
   .vz-revlist{display:grid;gap:10px;max-width:900px}
+  .vz-revrun{border:1px solid var(--vz-border);border-radius:10px;background:var(--vz-panel2);
+    padding:13px 15px;margin-bottom:4px}
+  .vz-revrun .why{margin:0 0 10px;font-size:12.5px;line-height:1.55;color:var(--vz-muted)}
   .vz-rev{border:1px solid var(--vz-border);border-radius:10px;background:var(--vz-panel);padding:13px 15px}
   .vz-rev.conflict{border-color:rgba(248,113,113,.32)}
   .vz-revtop{display:flex;align-items:center;gap:10px;margin-bottom:7px}
@@ -543,7 +546,7 @@ function WallPane({ ctx, wall, onSelect, onOpen }) {
 //   keep    — leave it on the queue for the next pass
 //   edit    — a correction is needed; the note says what (the source is never
 //             rewritten, rule 4)
-function ReviewPane({ ctx, review, onSelect, onDecide, decisions, busy }) {
+function ReviewPane({ ctx, review, onSelect, onDecide, onFindConflicts, decisions, busy, conflictBusy, conflictNote }) {
   if (!review) return jsx(Loading, {})
   const flags = review.flags || []
   const ACTION_LABEL = {
@@ -552,9 +555,30 @@ function ReviewPane({ ctx, review, onSelect, onDecide, decisions, busy }) {
   }
   return jsx('div', {
     className: 'vz-pane on vz-review',
-    children: jsx('div', {
+    children: jsxs('div', {
       className: 'vz-revlist',
-      children: flags.length ? flags.map((f, i) => {
+      children: [
+        /* The one action that is not a decision. Conflict detection is a
+           model pass: it costs calls, so it is offered, never run on load. */
+        jsxs('div', {
+          className: 'vz-revrun',
+          children: [
+            jsx('p', {
+              className: 'why',
+              children: 'Disagreements are not detectable by counting. This asks the model to read pairs of sections that share a subject and say whether they contradict — at most 200 pairs, once, on this session’s model. Your documents are read; nothing is changed.',
+            }),
+            jsx('button', {
+              className: 'vz-btn', disabled: conflictBusy,
+              onClick: onFindConflicts,
+              children: conflictBusy ? 'Reading the corpus…' : 'Find disagreements',
+            }),
+            conflictNote ? jsx('p', {
+              className: 'why', style: { color: C.muted },
+              children: conflictNote,
+            }) : null,
+          ],
+        }),
+        flags.length ? flags.map((f, i) => {
         const done = decisions && decisions[f.doc_id]
         const isBusy = busy === f.doc_id
         return jsxs('div', {
@@ -608,6 +632,7 @@ function ReviewPane({ ctx, review, onSelect, onDecide, decisions, busy }) {
         className: 'vz-rev',
         children: jsx('p', { className: 'why', children: 'Nothing needs a decision. Every document is current.' }),
       }),
+      ],
     }),
   })
 }
@@ -753,6 +778,10 @@ function Page({ ctx }) {
   const [decisions, setDecisions] = useState({})
   // `busy` is the doc_id being decided on, so its buttons cannot be clicked twice.
   const [busy, setBusy] = useState(null)
+  // The conflict pass is a separate job with its own busy state and its own
+  // note, because it can run while a decision is being recorded.
+  const [conflictBusy, setConflictBusy] = useState(false)
+  const [conflictNote, setConflictNote] = useState(null)
 
   const docs = (graph && graph.nodes ? graph.nodes : []).filter(n => n.kind === 'document')
   const sections = (graph && graph.nodes ? graph.nodes : []).filter(n => n.kind === 'section')
@@ -791,6 +820,35 @@ function Page({ ctx }) {
       host.notify({ kind: 'error', message: 'Could not record that decision: ' + e })
     } finally {
       setBusy(null)
+    }
+  }
+
+  // The conflict pass: one POST, on request. It asks the model about pairs of
+  // sections that share a subject and writes the disagreements it finds onto the
+  // review queue. The returned queue replaces the local copy so the counts in
+  // the left rail and the Review tab agree. A failure says so; it never leaves
+  // the page thinking a pass ran.
+  async function findConflicts() {
+    if (conflictBusy) return
+    setConflictBusy(true); setConflictNote(null)
+    try {
+      const res = await restRef.current('/conflicts', { method: 'POST', body: {} })
+      const n = (res && res.conflicts) ? res.conflicts.length : 0
+      const pairs = (res && res.pairs) || 0
+      setReview(res && res.queue ? { flags: res.queue } : review)
+      setConflictNote(n
+        ? `Found ${n} disagreement${n === 1 ? '' : 's'} in ${pairs} pair${pairs === 1 ? '' : 's'} read. They are at the top of this list.`
+        : `Read ${pairs} pair${pairs === 1 ? '' : 's'} and found no disagreements.`)
+      host.notify({
+        kind: n ? 'success' : 'info',
+        message: n ? `${n} disagreement${n === 1 ? '' : 's'} found and added to the review queue.`
+                   : 'No disagreements found in the pairs read.',
+      })
+    } catch (e) {
+      setConflictNote('Could not run the conflict pass: ' + e)
+      host.notify({ kind: 'error', message: 'Could not run the conflict pass: ' + e })
+    } finally {
+      setConflictBusy(false)
     }
   }
 
@@ -934,9 +992,11 @@ function Page({ ctx }) {
               tab === 'ask' ? jsx(AskPane, {
                 ctx, restRef, onOpen: sel => openDocument(sel),
               }) : null,
-              tab === 'review' ? jsx(ReviewPane, { ctx, review, decisions, busy, onSelect: f => select({
-                id: f.doc_id, kind: 'document', label: f.title, group: f.kind, flag: f.flag, path: f.path,
-              }), onDecide: decide }) : null,
+              tab === 'review' ? jsx(ReviewPane, {
+                ctx, review, decisions, busy, conflictBusy, conflictNote,
+                onSelect: f => select({
+                  id: f.doc_id, kind: 'document', label: f.title, group: f.kind, flag: f.flag, path: f.path,
+                }), onDecide: decide, onFindConflicts: findConflicts }) : null,
             ],
           }),
           /* right detail */
