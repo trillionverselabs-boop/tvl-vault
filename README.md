@@ -105,9 +105,11 @@ a false statement about it. The wall shows it as an artifact instead.
 ```bash
 cd /home/lisacore/work/tvl-vault
 PYTHON=.venv/bin/python ./scripts/test.sh
-# 158 passed
+# 180 passed
 ```
 
-The suite is hermetic: every test points `HERMES_HOME` and `HERMES_VAULT_ROOTS`
-at a throwaway tree, so it never reads the real corpus and never writes the real
-index.
+The suite is hermetic: `tests/conftest.py` has an autouse fixture that points
+`HERMES_HOME` at a throwaway tree, so no test can read the real corpus or
+write the real profile data root — a module that forgets to redirect still
+cannot touch `~/.hermes/profiles/charlene/tvl-vault/`. `HERMES_VAULT_ROOTS`
+pins the corpus roots per module where a test builds its own fixture.

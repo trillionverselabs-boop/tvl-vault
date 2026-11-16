@@ -95,3 +95,9 @@ are decisions in their own right.
 - **A fixture that lacks the failing case proves nothing.** Two real defects (60
   images on the queue, ten `popup*` screenshots indexed as content) were found by
   running the real corpus, not the suite.
+- **A test that writes to the real data root is not hermetic, whatever its
+  docstring says.** `test_api.py` set `HERMES_VAULT_DB` but not `HERMES_HOME`, so
+  `correction_path()` — which goes through `data_root()`, not the DB override —
+  resolved to the real profile and appended 241 rows of test decisions to Lisa's
+  review log. The redirect now lives in `tests/conftest.py` as an autouse
+  fixture, so no module can forget it.

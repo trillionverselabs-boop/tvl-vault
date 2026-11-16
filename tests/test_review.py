@@ -15,13 +15,12 @@ def _seed(tmp_path: Path):
 
 @pytest.fixture(autouse=True)
 def _keep_the_real_data_root(tmp_path, monkeypatch):
-    """Review decisions are written to the profile data root by default.
+    """The DB this module writes is in the test's own tmp tree.
 
-    Without this, a test that records a correction would append to the real
-    `~/.hermes/profiles/charlene/tvl-vault/corrections.jsonl`.
+    The data root itself is redirected for the whole suite by
+    `tests/conftest.py`; this module only needs its own index file.
     """
     monkeypatch.setenv("HERMES_VAULT_DB", str(tmp_path / "vault.db"))
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
 
 
 def test_byte_duplicate_gets_duplicate_flag(tmp_path):
