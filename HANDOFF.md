@@ -1,6 +1,6 @@
 # The Vault — handoff
 
-**Last updated:** 2026-11-15 ~18:55 EST
+**Last updated:** 2026-11-15 21:45 EST
 **Owner:** this session (charlene). **One working copy:** `/home/lisacore/work/tvl-vault`
 **Repo:** local git only — **no remote, therefore private.** Do not add a remote without Lisa saying so.
 
@@ -25,15 +25,16 @@
 | 8 | **One-command rebuild + flag summary** | commit `9272142` — `src/vault/cli.py` + `src/vault/__main__.py` + `scripts/rebuild.sh`; `./scripts/rebuild.sh` on the real corpus: **369 documents · 1,866 sections · 118 duplicates · 199 images · flags: duplicate=118, unclear=43, current=260 in 6.7 s**; worktree: **100 passed** |
 | 9 | **Images on the wall, out of the review queue** | commits `5714ae8` · `7f4139c` · `6ef4c65` · `68a4691`; worktree at `68a4691`: **136 passed**; `./scripts/rebuild.sh` on the real corpus: **images: 116 shown · 83 test screenshots**, review queue **161 → 101 with 0 images**; `hermes plugins validate .` → **`Validation passed.`** + **`security scan — safe`** |
 | 10 | **Conflict detection — model-assisted, on demand** | commits `e6995cf` · `a3a9d23` · `2e46996`; worktree at `2e46996`: **158 passed**; `hermes plugins validate . --install-deps` → **`Validation passed.`** + **`security scan — safe`**; real index (1,866 sections): **200 candidate pairs** (the cap), 200 scripted calls in **16.5 s**, queue unchanged at **101**; `POST /conflicts` returns `{conflicts, pairs, queue}` |
+| 11 | **Package: README · SCHEMA · CORPUS · DECISIONS** | commit `7dfede9`; `tests/test_docs.py` (22 tests) written first and watched fail (**21 failed, 1 passed**), then the four documents; worktree at `7dfede9`: **180 passed**; `hermes plugins validate . --install-deps` → **`Validation passed.`** + **`security scan — safe`** |
 
-**Tests:** 158 passed.
+**Tests:** 180 passed.
 ```bash
 cd /home/lisacore/work/tvl-vault
 PYTHON=.venv/bin/python ./scripts/test.sh
-# 158 passed, 1 warning in 74.78 s
+# 180 passed, 1 warning in 80.81 s
 ```
 Every commit above was checked out into a throwaway worktree and tested on its own
-(33 → 35 → 40 → 52 → 85 → 100 → 108 → 126 → 135 → 136 → 158 passing). Task 10 was
+(33 → 35 → 40 → 52 → 85 → 100 → 108 → 126 → 135 → 136 → 158 → 180 passing). Task 10 was
 committed in three pieces and the intermediate state is honest: at `e6995cf` the
 suite is **154 passed, 4 failed** — the four failures are the route and the
 desktop button, which the next commit adds. No broken intermediate state is
@@ -65,7 +66,6 @@ Verified searches: `sabotage` → *Paper & Claim Verification Report* §2.2 "Tou
 
 | Task | What | Where |
 |---|---|---|
-| 11 | Package: `hermes plugins validate . --install-deps`, README/SCHEMA/CORPUS/DECISIONS | repo root, `docs/` |
 | 12 | **Review walkthrough with Lisa** — needs her, not autonomous | — |
 | 13 | **Draft the eight-document spine** (mission → metrics) + the dream statement, each section citing the corpus. One read, then split into site pages | `docs/SPINE.md` |
 | 14 | **The research-to-product pipeline**: Vault → scored opportunities → products. The chosen path | `src/vault/` + `docs/` |
@@ -153,6 +153,33 @@ unchanged. The call contract (`temperature=0`, no model/provider override,
 `tests/test_conflicts.py`; the first real run should be Lisa's, in the task-12
 walkthrough.
 
+**This run (2026-11-15 21:27).** Task 11 — the four documents. `tests/test_docs.py`
+was written first and run: **21 failed, 1 passed** (the one pass is the
+`hermes plugins validate` test, which was already green). Then the four documents,
+then **180 passed** in the working tree and again in a worktree at the commit.
+
+What the writing turned up:
+
+- **The `duplicates` count has two mechanisms, and the docs had to say so.** A row
+  is produced by a byte-identical sibling in one root *and* by the same bytes
+  under a second root (the attachments PDF and its `tvl-ingest` twin). A probe
+  that scanned one root at a time reported **25 duplicate documents, 27 rows**,
+  while the DB holds **118** — the difference is entirely cross-root. `docs/CORPUS.md`
+  now states both, with the per-root table.
+- **`provides_tools` is empty, so the README must not advertise tools.** The plan's
+  `plugin.yaml` sketch listed `vault_search` / `vault_ask` / `vault_rebuild`; the
+  shipped manifest registers none (the desktop page is the product, and a tool
+  would need a capability the plugin does not declare). `test_docs.py` fails if any
+  document names one of them — the plan's own snippet would have shipped a lie.
+- **A documentation test is worth writing.** The repo already had one
+  (`test_the_desktop_docs_point_at_the_rebuild_command`); this adds 22 that read
+  the documents against the code: every table the modules create must appear in
+  `SCHEMA.md`, the measured counts must appear in `CORPUS.md`, no document may
+  tell a reader to push, add a remote, or `pip install`.
+- **The `outdated=0` result is recorded, not hidden.** `docs/CORPUS.md` and
+  `docs/SCHEMA.md` both say the version-regress rule finds no pair on this corpus,
+  and that this is an honest zero. The plan's acceptance expected ≥ 1.
+
 ---
 
 ## Learned while doing this
@@ -223,6 +250,14 @@ walkthrough.
   money and breaks when the free model is throttled. `rebuild` is $0 and
   offline; `POST /conflicts` is the only route and the Review tab's button the
   only caller. The same rule will apply to any future model-assisted pass.
+- **A count measured one root at a time is not the index's count.** `sources.scan`
+  sees one root; `index.rebuild` unions them and carries a file that appears in
+  two roots across as a duplicate. The per-root probe said 27 duplicate rows, the
+  DB says 118. Any future "how many X" probe must say *which* it measured.
+- **The plan's `plugin.yaml` snippet is not the shipped manifest.** It advertised
+  three tools; the shipped file registers none. `test_docs.py` now guards the
+  documents against repeating the plan's snippet, and the README says the desktop
+  page is the product.
 
 ---
 
