@@ -217,7 +217,7 @@ async def find_conflicts() -> dict:
     flags = _review.conflicts(db, llm)
     return {
         "conflicts": flags,
-        "pairs": _review.pairs_asked(db),
+        "pairs": _review.pairs_asked(),
         "queue": _review.queue(db),
     }
 

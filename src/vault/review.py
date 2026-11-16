@@ -299,10 +299,10 @@ def conflicts(db: sqlite3.Connection, llm) -> list[dict]:
     return _run_conflicts(db, llm)
 
 
-def pairs_asked(db: sqlite3.Connection) -> int:
+def pairs_asked() -> int:
     """How many model calls the last run spent. The cap is a promise, and the
     route reports it so a reviewer can see the promise was kept."""
-    return getattr(_STATE, "pairs_asked", 0)
+    return _STATE.pairs_asked
 
 
 class _State:
