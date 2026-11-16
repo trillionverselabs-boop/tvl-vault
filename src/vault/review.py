@@ -5,7 +5,7 @@ DUPLICATE  - byte-identical copy of another document (sha256)
 OUTDATED   - an older version of a title that exists in a newer version,
              or a document whose own VALIDITY tag is not Active
 CONFLICT   - two documents make claims that cannot both be true (model-assisted,
-             run on demand; see Task 10)
+             run on demand only; see `conflicts` below)
 UNCLEAR    - no extractable sections, or too little text to be a claim
 """
 
@@ -14,11 +14,67 @@ from __future__ import annotations
 import json
 import re
 import sqlite3
+from collections import Counter
 from pathlib import Path
 
 from .paths import data_root
 
 FLAG_ORDER = ["conflict", "outdated", "duplicate", "unclear", "current"]
+
+# The conflict pass's ceiling: at most this many model calls per run. A free
+# model is throttled, and a run that asked about every section pair would be
+# thousands of calls for nothing.
+MAX_CONFLICT_PAIRS = 200
+
+# A section shorter than this cannot state a claim, so it cannot contradict
+# one. Headings are usually 3-6 words; 24 words is a sentence and a half.
+MIN_CLAIM_WORDS = 24
+
+# Two sections are candidates only if they share a *subject*. A shared
+# stopword ("the", "doctrine") is not a subject, and neither is a number: the
+# real corpus paired the character sheet with a CSS token contract on `10px`
+# and a voice note with a data plan on `9000`. Numbers are dropped before
+# matching, and a candidate needs at least `MIN_SHARED_TERMS` shared terms.
+_MIN_TERM_LEN = 4
+MIN_SHARED_TERMS = 2
+
+# A term must appear in at least this many sections to be a subject at all.
+# One section's vocabulary is a coincidence, not a subject.
+_MIN_TERM_SECTIONS = 2
+
+_STOPWORDS = frozenset("""
+a about above after again against all am an and any are as at be because been
+before being below between both but by can cannot could did do does doing down
+during each few for from further had has have having he her here hers him his
+how i if in into is it its itself just me more most my no nor not now of off
+on once only or other our ours out over own same she should so some such than
+that the their theirs them then there these they this those through to too
+under until up very was we were what when where which while who whom why will
+with you your
+""".split())
+
+# Words that are shared by much of the corpus and say nothing about a subject.
+# Measured on the real index: these appear in 200+ of its ~1,866 sections.
+_SALIENCE_STOP = frozenset("""
+document section system tvl vault doctrine rag data structure logic
+every page real first run must content model use build research market
+""".split())
+
+_WORD_RE = re.compile(r"[0-9A-Za-z]{3,}")
+_NUMERIC_RE = re.compile(r"^[0-9.,:%$#/x-]+$")
+# Hex colours (`22d3ee`) and CSS units (`10px`, `60ms`) are values, not subjects.
+_CODE_RE = re.compile(r"^(?:[0-9a-f]{6,8}|[0-9]+(?:px|em|rem|khz|ms|s|x))$")
+
+# A conflict must name what the disagreement is about. The model is asked for a
+# short reason; a bare `true` with no reason is not reviewable.
+_CONFLICT_INSTRUCTIONS = (
+    "You are checking a business document corpus for contradictions. "
+    "Two passages are shown. Decide whether they make claims that cannot both "
+    "be true. A difference of emphasis, a restatement, or two subjects that "
+    "merely share a word is NOT a contradiction. Answer JSON: "
+    '{"contradicts": true|false, "reason": "one short sentence, or empty"}. '
+    "Plain language. No jargon."
+)
 
 
 def _version_tuple(v: str) -> tuple[int, int] | None:
@@ -103,9 +159,218 @@ def write_flags(db: sqlite3.Connection, flags: list[dict]) -> None:
     db.commit()
 
 
-def conflicts(db: sqlite3.Connection) -> list[dict]:
-    """Pairs of sections that contradict. Model-assisted; see Task 10. Empty until then."""
-    return []
+def _section_rows(db: sqlite3.Connection) -> list[dict]:
+    return [dict(r) for r in db.execute(
+        "SELECT s.section_id, s.doc_id, s.title, s.body, d.title AS doc_title, "
+        "d.path AS doc_path FROM sections s JOIN documents d ON d.doc_id=s.doc_id")]
+
+
+def _terms(text: str) -> set[str]:
+    """The words that can carry a subject: distinctive, non-numeric, 4+ chars.
+
+    Numbers, hex colours and CSS units are dropped on purpose. On the real
+    corpus the character sheet and a CSS token contract were paired on `10px`,
+    a voice note and a data plan on `9000`, and a brand book with a plugin
+    style guide on `22d3ee`/`a855f7`. A number is a *value*, not a subject —
+    a disagreement about a value is exactly what the model is for, but a shared
+    number or colour is not evidence that two passages are about the same thing.
+    """
+    out = set()
+    for w in _WORD_RE.findall((text or "").lower()):
+        if len(w) < _MIN_TERM_LEN or w in _STOPWORDS or w in _SALIENCE_STOP:
+            continue
+        if _NUMERIC_RE.match(w) or _CODE_RE.match(w):
+            continue
+        out.add(w)
+    return out
+
+
+def _salient_terms(db: sqlite3.Connection) -> dict[str, int]:
+    """Term -> in how many sections it appears.
+
+    A subject has to be shared, so a term in one section is not salient; a term
+    in most sections (`document`, `model`) is shared by everything and says
+    nothing about which pair is about the same thing. Both ends are cut.
+    """
+    n = db.execute("SELECT COUNT(*) FROM sections").fetchone()[0]
+    counts: Counter[str] = Counter()
+    for row in db.execute("SELECT title, body FROM sections"):
+        counts.update(_terms(f"{row['title']}\n{row['body']}"))
+    lo = _MIN_TERM_SECTIONS
+    hi = max(lo, n * 0.2)
+    return {t: c for t, c in counts.items() if lo <= c <= hi}
+
+
+def _candidates(db: sqlite3.Connection) -> list[tuple[dict, dict]]:
+    """Section pairs worth asking the model about, best pairs first.
+
+    Two sections are candidates when they are from different documents, both
+    state a claim (>= `MIN_CLAIM_WORDS` words), and share at least
+    `MIN_SHARED_TERMS` salient terms. One shared word is a coincidence — the
+    real corpus made 724,410 such pairs and spent its 200 calls on `10px`.
+
+    Ordered by how *rare* the shared terms are, so the cap spends its calls
+    where two documents most plausibly discuss the same subject.
+    """
+    sections = _section_rows(db)
+    salient = _salient_terms(db)
+    by_id = {s["section_id"]: s for s in sections}
+    term_map = {s["section_id"]: _terms(f"{s['title']}\n{s['body']}") & set(salient)
+                for s in sections}
+    pairs: list[tuple[int, int, str, str]] = []
+    for i, a in enumerate(sections):
+        if len((a["body"] or "").split()) < MIN_CLAIM_WORDS:
+            continue
+        for b in sections[i + 1:]:
+            if a["doc_id"] == b["doc_id"]:
+                continue
+            if len((b["body"] or "").split()) < MIN_CLAIM_WORDS:
+                continue
+            shared = term_map[a["section_id"]] & term_map[b["section_id"]]
+            if len(shared) < MIN_SHARED_TERMS:
+                continue
+            # rarest shared term first, then the pair sharing the most terms
+            pairs.append((max(salient[t] for t in shared), len(shared),
+                          a["section_id"], b["section_id"]))
+    pairs.sort(key=lambda p: (p[0], -p[1]))
+    return [(by_id[aid], by_id[bid]) for _, _, aid, bid in pairs[:MAX_CONFLICT_PAIRS]]
+
+
+def _verdict(llm, a: dict, b: dict) -> dict:
+    """One model call. `{"contradicts": bool, "reason": str}`, or `{}`."""
+    text_a = f"{a['title']}\n{a['body']}"[:1800]
+    text_b = f"{b['title']}\n{b['body']}"[:1800]
+    prompt = (
+        f"PASSAGE 1 (from {a['doc_title']}):\n{text_a}\n\n"
+        f"PASSAGE 2 (from {b['doc_title']}):\n{text_b}"
+    )
+    res = llm.complete_structured(
+        instructions=_CONFLICT_INSTRUCTIONS,
+        input=[{"type": "text", "text": prompt}],
+        temperature=0,
+        purpose="tvl-vault conflict check",
+    )
+    parsed = getattr(res, "parsed", None)
+    if isinstance(parsed, dict):
+        return parsed
+    raw = (getattr(res, "text", "") or "").strip()
+    m = re.search(r"\{.*\}", raw, re.S)
+    if not m:
+        return {}
+    try:
+        out = json.loads(m.group(0))
+    except ValueError:
+        return {}
+    return out if isinstance(out, dict) else {}
+
+
+def _conflict_key(a: dict, b: dict) -> tuple[str, str]:
+    return tuple(sorted((a["doc_id"], b["doc_id"])))          # type: ignore[return-value]
+
+
+def _conflict_key_ids(x: str, y: str) -> tuple[str, str]:
+    return tuple(sorted((x, y)))                              # type: ignore[return-value]
+
+
+def conflicts(db: sqlite3.Connection, llm) -> list[dict]:
+    """The model-assisted pass: find pairs of sections that contradict.
+
+    **On demand only.** It is never part of `rebuild` — every call is a model
+    call, and a rebuild that asked about 200 pairs would cost money and break
+    when the free model is throttled. The desktop's Review tab offers the run;
+    `POST /api/plugins/tvl-vault/conflicts` is the route.
+
+    Guardrails, all deliberate:
+
+    * at most `MAX_CONFLICT_PAIRS` (200) model calls per run;
+    * `temperature=0`, no provider or model override — the same corpus gives
+      the same verdicts;
+    * a pair already recorded as a conflict is not asked again (a rerun adds,
+      it does not redo);
+    * a pair the human has already decided on is not asked again;
+    * a model failure is skipped, never fatal;
+    * every recorded flag carries the model's reason as `evidence`, because a
+      conflict a reviewer cannot read is not reviewable.
+
+    Returns the flags it wrote, and writes them to the `flags` table.
+    """
+    if llm is None or db is None:
+        return []
+    return _run_conflicts(db, llm)
+
+
+def pairs_asked(db: sqlite3.Connection) -> int:
+    """How many model calls the last run spent. The cap is a promise, and the
+    route reports it so a reviewer can see the promise was kept."""
+    return getattr(_STATE, "pairs_asked", 0)
+
+
+class _State:
+    """One run's counters. A module-level holder, not a global per field."""
+
+    pairs_asked = 0
+
+
+_STATE = _State()
+
+
+def _run_conflicts(db: sqlite3.Connection, llm) -> list[dict]:
+    _STATE.pairs_asked = 0
+    # A pair already recorded as a conflict is settled: the flag names the
+    # document it was found against, and the pair key is the two doc ids. Both
+    # are read back from the flags table, so a rerun adds conflicts without
+    # redoing the ones already on the queue.
+    settled: set[tuple[str, str]] = set()
+    try:
+        recorded = [dict(r) for r in db.execute(
+            "SELECT doc_id, section_id FROM flags WHERE flag='conflict'")]
+    except sqlite3.Error:
+        recorded = []
+    for f in recorded:
+        other = f["section_id"] or ""
+        if other:
+            settled.add(_conflict_key_ids(f["doc_id"], other))
+    decided = resolved_doc_ids(db)
+
+    written: list[dict] = []
+    for a, b in _candidates(db):
+        if _STATE.pairs_asked >= MAX_CONFLICT_PAIRS:
+            break
+        key = _conflict_key(a, b)
+        if key in settled:
+            continue
+        if a["doc_id"] in decided or b["doc_id"] in decided:
+            continue
+        try:
+            v = _verdict(llm, a, b)
+        except Exception:
+            continue                       # a throttled model: skip, never crash
+        _STATE.pairs_asked += 1
+        if not v or not v.get("contradicts"):
+            continue
+        reason = str(v.get("reason") or "").strip()
+        flag = {
+            # `section_id` carries the partner document's id: a conflict flag is
+            # keyed (doc_id, section_id, flag), and that slot is what makes a
+            # rerun know this exact pair is already settled.
+            "section_id": b["doc_id"],
+            "doc_id": a["doc_id"],
+            "flag": "conflict",
+            "reason": f"disagrees with “{b['doc_title']}”"
+                       + (f": {reason}" if reason else ""),
+            "evidence": reason or f"model verdict: contradicts ({b['doc_title']})",
+        }
+        written.append(flag)
+        settled.add(key)
+    if written:
+        db.execute("CREATE TABLE IF NOT EXISTS flags ("
+                   "doc_id TEXT, section_id TEXT, flag TEXT, reason TEXT, evidence TEXT, "
+                   "PRIMARY KEY(doc_id, section_id, flag))")
+        for f in written:
+            db.execute("INSERT OR REPLACE INTO flags VALUES(?,?,?,?,?)",
+                       (f["doc_id"], f["section_id"], f["flag"], f["reason"], f["evidence"]))
+        db.commit()
+    return written
 
 
 # ── corrections ─────────────────────────────────────────────────────────

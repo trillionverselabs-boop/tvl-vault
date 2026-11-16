@@ -116,7 +116,9 @@ def test_queue_orders_a_disagreement_first(tmp_path):
     assert review.queue(db)[0]["flag"] == "conflict"
 
 
-def test_review_module_does_not_claim_conflicts_it_cannot_find(tmp_path):
-    """Task 10 owns conflict detection; until then the list is honestly empty."""
+def test_the_conflict_pass_needs_a_model_and_is_not_part_of_the_flags(tmp_path):
+    """Task 10 shipped the model-assisted pass; it is on demand, so the
+    deterministic flag table never claims a conflict it cannot prove."""
     db = _seed(tmp_path)
-    assert review.conflicts(db) == []
+    assert review.conflicts(db, None) == []
+    assert [f for f in review.compute_flags(db) if f["flag"] == "conflict"] == []
