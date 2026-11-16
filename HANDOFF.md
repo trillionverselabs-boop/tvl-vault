@@ -1,6 +1,6 @@
 # The Vault — handoff
 
-**Last updated:** 2026-11-15 23:55 EST
+**Last updated:** 2026-11-16 01:57 EST
 **Owner:** this session (charlene). **One working copy:** `/home/lisacore/work/tvl-vault`
 **Repo:** local git only — **no remote, therefore private.** Do not add a remote without Lisa saying so.
 
@@ -26,13 +26,17 @@
 | 9 | **Images on the wall, out of the review queue** | commits `5714ae8` · `7f4139c` · `6ef4c65` · `68a4691`; worktree at `68a4691`: **136 passed**; `./scripts/rebuild.sh` on the real corpus: **images: 116 shown · 83 test screenshots**, review queue **161 → 101 with 0 images**; `hermes plugins validate .` → **`Validation passed.`** + **`security scan — safe`** |
 | 10 | **Conflict detection — model-assisted, on demand** | commits `e6995cf` · `a3a9d23` · `2e46996`; worktree at `2e46996`: **158 passed**; `hermes plugins validate . --install-deps` → **`Validation passed.`** + **`security scan — safe`**; real index (1,866 sections): **200 candidate pairs** (the cap), 200 scripted calls in **16.5 s**, queue unchanged at **101**; `POST /conflicts` returns `{conflicts, pairs, queue}` |
 | 11 | **Package: README · SCHEMA · CORPUS · DECISIONS** | commit `7dfede9`; `tests/test_docs.py` (22 tests) written first and watched fail (**21 failed, 1 passed**), then the four documents; worktree at `7dfede9`: **180 passed**; `hermes plugins validate . --install-deps` → **`Validation passed.`** + **`security scan — safe`** |
+| 12a | **Tests no longer write to the real profile data root** (the defect that blocked the task-12 walkthrough) | commit `9782385`; RED first: with the autouse fixture removed, `tests/conftest.py` fails with `correction_path() == /home/lisacore/.hermes/tvl-vault/corrections.jsonl`, and one `tests/test_api.py` run moved the real log **249 → 253**; GREEN: the same run leaves it at **253 → 253**; worktree at `9782385`: **180 passed**, real log frozen; `hermes plugins validate . --install-deps` → **`Validation passed.`** + **`security scan — safe`** |
 
 **Tests:** 180 passed.
 ```bash
 cd /home/lisacore/work/tvl-vault
 PYTHON=.venv/bin/python ./scripts/test.sh
-# 180 passed, 1 warning in 80.81 s
+# 180 passed, 1 warning in 80.11 s
 ```
+The suite is hermetic now: `tests/conftest.py`'s autouse fixture points
+`HERMES_HOME` at a throwaway tree, and the real `corrections.jsonl` did not move
+across the full run (**253 → 253**).
 Every commit above was checked out into a throwaway worktree and tested on its own
 (33 → 35 → 40 → 52 → 85 → 100 → 108 → 126 → 135 → 136 → 158 → 180 passing). Task 10 was
 committed in three pieces and the intermediate state is honest: at `e6995cf` the
@@ -69,6 +73,13 @@ Verified searches: `sabotage` → *Paper & Claim Verification Report* §2.2 "Tou
 | 12 | **Review walkthrough with Lisa** — needs her, not autonomous | — |
 | 13 | **Draft the eight-document spine** (mission → metrics) + the dream statement, each section citing the corpus. One read, then split into site pages | `docs/SPINE.md` |
 | 14 | **The research-to-product pipeline**: Vault → scored opportunities → products. The chosen path | `src/vault/` + `docs/` |
+
+Task 12 is the first undone task and stays a **Lisa gate**: the walkthrough is a
+session with her. The defect that made it unsafe to run (tests writing into her
+real review log) is now fixed — see 12a above — so the walkthrough can start the
+moment she is available. Its first step is still `./scripts/rebuild.sh`, because
+the real index has never been built (`paths.vault_db_path()` →
+`~/.hermes/profiles/charlene/tvl-vault/vault.db`, which does not exist).
 
 Full detail and copy-pasteable code: `docs/PLAN.md`.
 
@@ -180,6 +191,32 @@ What the writing turned up:
   `docs/SCHEMA.md` both say the version-regress rule finds no pair on this corpus,
   and that this is an honest zero. The plan's acceptance expected ≥ 1.
 
+**This run (2026-11-16 01:57).** Task 12 is the first undone task and is a Lisa
+gate, so the cron did not run it. Instead it did the measured defect that made
+the walkthrough unsafe (Needs Lisa #7, recorded as task 12a), because that is the
+one thing standing between Lisa and a clean review log.
+
+- **RED, measured on the real file.** With `tests/conftest.py`'s new tests in
+  place and its autouse fixture removed, the backstop test fails with
+  `correction_path() == /home/lisacore/.hermes/tvl-vault/corrections.jsonl`,
+  and one `tests/test_api.py` run moved the real log **249 → 253**. That is the
+  leak, not an inference.
+- **GREEN.** The same run leaves the log at **253 → 253**. Full suite: **180
+  passed**. Worktree at `9782385`: **180 passed**, log frozen.
+- **Why the fixture is in `conftest.py` and not in `test_api.py`.** The module
+  docstring already *claimed* `HERMES_HOME` was redirected; it was not. A fix
+  that lives in the leaking module is a fix the next leaking module will not
+  have. An autouse fixture in `conftest.py` is the only place that cannot be
+  forgotten.
+- **The guard tests are honest about themselves.** The first version of the
+  backstop test deleted `HERMES_HOME` *after* the fixture had set it, so it
+  tested the fixture rather than the leak and failed for the wrong reason. It
+  now reproduces the module shape that actually leaked (DB overridden, data root
+  left to the environment) and fails only when the fixture is gone.
+- **Docs corrected, not just code.** `README.md` claimed 158 passed and called
+  the suite hermetic — both were false. It now says 180 and describes the
+  conftest fixture. `docs/DECISIONS.md` §5 records the lesson.
+
 **This run (2026-11-15 23:47).** Task 12 is the first undone task and is marked
 *not autonomous* — the review walkthrough is a session with Lisa, so the cron
 stopped and wrote a **Needs Lisa** line rather than guessing. Two facts it
@@ -279,13 +316,17 @@ established first, both about the real data root:
   it is not. `review.write_correction` → `correction_path()` →
   `data_root()/"corrections.jsonl"`, so every `test_api.py` run appends to
   `~/.hermes/profiles/charlene/tvl-vault/corrections.jsonl`. Measured, not inferred:
-  `wc -l` went **237 → 241** across one `PYTHON=.venv/bin/python ./scripts/test.sh
-  tests/test_api.py -q` run (file mtime moved to 23:54). `tests/test_review.py`
-  carries an autouse fixture that sets `HERMES_HOME`; `test_api.py` does not, so
-  the fixture belongs in `tests/conftest.py` where it covers every module. The real
-  log now holds **241 rows, all of them test decisions** — the walkthrough's real
-  decisions would be buried in them. Not fixed in this run: the cron's rule is one
-  task at a time and new cards go on hold. Recommended as the next autonomous task.
+  `wc -l` went **237 → 241**, then **245 → 249**, then **249 → 253** across three
+  single-file runs. `tests/test_review.py` carried an autouse fixture that sets
+  `HERMES_HOME`; `test_api.py` did not. **Fixed in `9782385`** (task 12a): the
+  redirect is now an autouse fixture in `tests/conftest.py`, so no module can
+  forget it, and two tests in that file fail if it is removed. The real log now
+  holds **253 rows, all of them test decisions** and no longer growing.
+- **A path override on the DB does not cover the data root.** `vault_db_path()`
+  honours `HERMES_VAULT_DB`; `correction_path()` goes through `data_root()`, which
+  honours `HERMES_HOME`. A test that redirects only the first is hermetic for the
+  index and leaky for every other write. **Any new write path needs the same
+  question asked: which env var redirects it?**
 
 ---
 
@@ -306,10 +347,14 @@ established first, both about the real data root:
    keep / mark-current / correct pass with me now, or should the cron skip 12 and
    start task 13? Task 13 has **no spec in `docs/PLAN.md`** — which **eight
    documents** are the spine?
-7. **New (defect, measured):** `tests/test_api.py` leaks review decisions into the
-   real `corrections.jsonl` (**241 rows, all test data**). Fix it now (move the
-   `HERMES_HOME` autouse fixture from `tests/test_review.py` into
-   `tests/conftest.py`), or hold it as a card?
+7. ~~**Defect, measured:** `tests/test_api.py` leaks review decisions into the
+   real `corrections.jsonl`.~~ **Fixed in `9782385` (task 12a).** The
+   `HERMES_HOME` redirect now lives in `tests/conftest.py` as an autouse fixture.
+   The real log holds **253 rows, all test data** and stopped growing.
+8. **New (task 12):** the walkthrough's real decisions will land in a
+   `corrections.jsonl` that already holds **253 rows of test decisions**. Wipe
+   them (they are reproducible — every one came from a test), or keep them and
+   accept the noise? Wiping is one command and loses nothing real.
 
 ---
 
