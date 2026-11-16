@@ -1,6 +1,6 @@
 # The Vault — handoff
 
-**Last updated:** 2026-11-15 21:45 EST
+**Last updated:** 2026-11-15 23:55 EST
 **Owner:** this session (charlene). **One working copy:** `/home/lisacore/work/tvl-vault`
 **Repo:** local git only — **no remote, therefore private.** Do not add a remote without Lisa saying so.
 
@@ -180,6 +180,20 @@ What the writing turned up:
   `docs/SCHEMA.md` both say the version-regress rule finds no pair on this corpus,
   and that this is an honest zero. The plan's acceptance expected ≥ 1.
 
+**This run (2026-11-15 23:47).** Task 12 is the first undone task and is marked
+*not autonomous* — the review walkthrough is a session with Lisa, so the cron
+stopped and wrote a **Needs Lisa** line rather than guessing. Two facts it
+established first, both about the real data root:
+
+- **The real index has never been built.** `paths.vault_db_path()` →
+  `~/.hermes/profiles/charlene/tvl-vault/vault.db` — **does not exist**. Every
+  build so far wrote to a throwaway `--db` under the scratch dir, so the
+  walkthrough's first step is `./scripts/rebuild.sh` (the plan's task-12 command
+  reads `paths.vault_db_path()` and would find nothing).
+- **The API tests leak review decisions into the real data root** (see Learned,
+  below). The walkthrough's real decisions would land in a log that already
+  holds 241 test rows.
+
 ---
 
 ## Learned while doing this
@@ -258,6 +272,20 @@ What the writing turned up:
   three tools; the shipped file registers none. `test_docs.py` now guards the
   documents against repeating the plan's snippet, and the README says the desktop
   page is the product.
+- **The API tests write review decisions into the real data root.** This is the
+  one defect found by *reading the test that claims to prevent it*:
+  `tests/test_api.py::_load_api` sets `HERMES_VAULT_DB` but **not** `HERMES_HOME`,
+  and its module docstring says "`HERMES_HOME` is pointed at a throwaway tree" —
+  it is not. `review.write_correction` → `correction_path()` →
+  `data_root()/"corrections.jsonl"`, so every `test_api.py` run appends to
+  `~/.hermes/profiles/charlene/tvl-vault/corrections.jsonl`. Measured, not inferred:
+  `wc -l` went **237 → 241** across one `PYTHON=.venv/bin/python ./scripts/test.sh
+  tests/test_api.py -q` run (file mtime moved to 23:54). `tests/test_review.py`
+  carries an autouse fixture that sets `HERMES_HOME`; `test_api.py` does not, so
+  the fixture belongs in `tests/conftest.py` where it covers every module. The real
+  log now holds **241 rows, all of them test decisions** — the walkthrough's real
+  decisions would be buried in them. Not fixed in this run: the cron's rule is one
+  task at a time and new cards go on hold. Recommended as the next autonomous task.
 
 ---
 
@@ -272,6 +300,16 @@ What the writing turned up:
    and 4 screenshots in `work/strategic-arena/assets/` (`banner`, `how-it-works`,
    `marketplace`). Junk (counted, never captioned), or real content? Today they
    are content, so the caption model would be asked to describe 45 video frames.
+6. **New (task 12, the current gate):** the review walkthrough is the first undone
+   task and is marked *not autonomous*. Once `./scripts/rebuild.sh` runs, the queue
+   is **101 flags (58 duplicate + 43 unclear)**. Do you want to do the
+   keep / mark-current / correct pass with me now, or should the cron skip 12 and
+   start task 13? Task 13 has **no spec in `docs/PLAN.md`** — which **eight
+   documents** are the spine?
+7. **New (defect, measured):** `tests/test_api.py` leaks review decisions into the
+   real `corrections.jsonl` (**241 rows, all test data**). Fix it now (move the
+   `HERMES_HOME` autouse fixture from `tests/test_review.py` into
+   `tests/conftest.py`), or hold it as a card?
 
 ---
 
