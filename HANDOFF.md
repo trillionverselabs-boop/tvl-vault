@@ -1,6 +1,6 @@
 # The Vault — handoff
 
-**Last updated:** 2026-11-15 ~16:40 EST
+**Last updated:** 2026-11-15 ~18:55 EST
 **Owner:** this session (charlene). **One working copy:** `/home/lisacore/work/tvl-vault`
 **Repo:** local git only — **no remote, therefore private.** Do not add a remote without Lisa saying so.
 
@@ -24,16 +24,20 @@
 | 7 | **Cited question answers** | commit `2926270` — `src/vault/qa.py` (retrieval ladder + IDF ranking + citations, session model, temperature 0); worktree: **52 passed** |
 | 8 | **One-command rebuild + flag summary** | commit `9272142` — `src/vault/cli.py` + `src/vault/__main__.py` + `scripts/rebuild.sh`; `./scripts/rebuild.sh` on the real corpus: **369 documents · 1,866 sections · 118 duplicates · 199 images · flags: duplicate=118, unclear=43, current=260 in 6.7 s**; worktree: **100 passed** |
 | 9 | **Images on the wall, out of the review queue** | commits `5714ae8` · `7f4139c` · `6ef4c65` · `68a4691`; worktree at `68a4691`: **136 passed**; `./scripts/rebuild.sh` on the real corpus: **images: 116 shown · 83 test screenshots**, review queue **161 → 101 with 0 images**; `hermes plugins validate .` → **`Validation passed.`** + **`security scan — safe`** |
+| 10 | **Conflict detection — model-assisted, on demand** | commits `e6995cf` · `a3a9d23` · `2e46996`; worktree at `2e46996`: **158 passed**; `hermes plugins validate . --install-deps` → **`Validation passed.`** + **`security scan — safe`**; real index (1,866 sections): **200 candidate pairs** (the cap), 200 scripted calls in **16.5 s**, queue unchanged at **101**; `POST /conflicts` returns `{conflicts, pairs, queue}` |
 
-**Tests:** 136 passed.
+**Tests:** 158 passed.
 ```bash
 cd /home/lisacore/work/tvl-vault
 PYTHON=.venv/bin/python ./scripts/test.sh
-# 136 passed, 1 warning in 55.41 s
+# 158 passed, 1 warning in 74.78 s
 ```
 Every commit above was checked out into a throwaway worktree and tested on its own
-(33 → 35 → 40 → 52 → 85 → 100 → 108 → 126 → 135 → 136 passing); no broken
-intermediate state is recorded.
+(33 → 35 → 40 → 52 → 85 → 100 → 108 → 126 → 135 → 136 → 158 passing). Task 10 was
+committed in three pieces and the intermediate state is honest: at `e6995cf` the
+suite is **154 passed, 4 failed** — the four failures are the route and the
+desktop button, which the next commit adds. No broken intermediate state is
+recorded as done.
 
 **Real build (at `68a4691`):** 369 documents · 1,866 sections · 118 duplicates · 199 images · **6.8 s**.
 ```bash
@@ -61,7 +65,6 @@ Verified searches: `sabotage` → *Paper & Claim Verification Report* §2.2 "Tou
 
 | Task | What | Where |
 |---|---|---|
-| 10 | Conflict detection — model-assisted, on demand, capped at 200 pairs. *(The review-queue half — Keep / Confirm / Edit + `corrections` — is already done in commit `08fe1d9`; only the model-assisted conflict pass remains.)* | `src/vault/review.py` |
 | 11 | Package: `hermes plugins validate . --install-deps`, README/SCHEMA/CORPUS/DECISIONS | repo root, `docs/` |
 | 12 | **Review walkthrough with Lisa** — needs her, not autonomous | — |
 | 13 | **Draft the eight-document spine** (mission → metrics) + the dream statement, each section citing the corpus. One read, then split into site pages | `docs/SPINE.md` |
@@ -115,6 +118,40 @@ had hidden:
   confirm or edit. `review.queue()` now excludes images. The duplicate *flag*
   stays recorded (`/stats` still counts 118); the queue is a human decision.
   Queue 161 → 101, 0 images.
+
+**This run (2026-11-15 18:42).** Task 10 — the model-assisted conflict pass. The
+review-queue half was already done in `08fe1d9`; this is the pass itself, its
+route, and the desktop action. Three commits (`e6995cf`, `a3a9d23`, `2e46996`),
+each verified in a worktree (the first at **154 passed / 4 failed**, because the
+route and button land in the second).
+
+What the real corpus exposed, which the fixtures could not:
+
+- **A one-word subject test is not a subject test.** The first version paired
+  any two sections sharing a salient word. On 1,866 real sections that made
+  **724,410 pairs**, and the 200-call cap was spent on `10px` (a character sheet
+  vs a CSS token contract), `9000` (a voice note vs a data plan), `lighter`,
+  `naive`, `misplaced`. All noise. The rule is now: numbers, hex colours and CSS
+  units are dropped; a term must appear in ≥ 2 sections and ≤ 20% of them; and a
+  candidate needs **≥ 2** shared terms, rarest-first. The 200 pairs that survive
+  are real topical pairs (`workaround`/`workarounds`, `icons`/`typography`,
+  `hire`/`zoom` across two YouTube docs).
+- **A conflict flag has to remember its partner.** The first version stored the
+  pair as `(doc_id, doc_id)` — a degenerate key — so a rerun asked about the same
+  pair again. The flag's `section_id` slot now carries the partner document's id
+  (the table is keyed `(doc_id, section_id, flag)`), which is exact; a title
+  lookup was the first attempt and is the kind of thing that goes stale.
+- **The pass is genuinely on demand.** `rebuild` never calls it; `POST
+  /conflicts` is the only route, and the Review tab's **Find disagreements**
+  button is the only caller. Nothing runs it on load.
+
+Not exercised in this run: the live free model. Nous Portal is **not logged in**
+on this machine (`hermes proxy status`), so the pass was driven end-to-end on the
+real index with a scripted verdict instead — 200 pairs, 16.5 s, no crash, queue
+unchanged. The call contract (`temperature=0`, no model/provider override,
+`parsed` dict or raw JSON text, failures skipped) is pinned by
+`tests/test_conflicts.py`; the first real run should be Lisa's, in the task-12
+walkthrough.
 
 ---
 
@@ -171,6 +208,21 @@ had hidden:
   not covered and are now Lisa's call (see Needs Lisa #5): 45 video frames under
   `work/arena-demo-video/arena-demo/frames/` and 4 `strategic-arena/assets/*.png`
   screenshots. Both are indexed as content today.
+- **A shared word is not a shared subject.** Task 10's first version asked the
+  model about any two sections sharing one salient word. On the real corpus that
+  is 724,410 pairs, and the 200-call cap went on `10px`, `9000` and `lighter` —
+  a character sheet against a CSS contract, a voice note against a data plan.
+  Two changes make it a subject test: numbers, hex colours and CSS units are not
+  terms at all, and a candidate needs ≥ 2 shared terms. **The same trap applies
+  to any future "find related sections" feature** — one word is a coincidence.
+- **A flag that names a pair must store the pair.** The conflict flag's
+  `section_id` slot carries the partner document's id, because the table key is
+  `(doc_id, section_id, flag)`. Resolving a partner from its *title* (the first
+  attempt) is a lookup that goes stale the moment a document is renamed.
+- **A model pass belongs behind a button, not a rebuild.** Every call costs
+  money and breaks when the free model is throttled. `rebuild` is $0 and
+  offline; `POST /conflicts` is the only route and the Review tab's button the
+  only caller. The same rule will apply to any future model-assisted pass.
 
 ---
 
