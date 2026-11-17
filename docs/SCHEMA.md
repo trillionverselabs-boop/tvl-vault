@@ -100,20 +100,25 @@ that finds the table missing computes it, so a partial build still shows a queue
 
 ## `corrections`
 
-One row per document the human has decided on. **This is the only table a person
-writes, and it never touches a source file.**
+One row per **(document, flag)** the human has decided on. **This is the only
+table a person writes, and it never touches a source file.**
 
 | Column | Type | Meaning |
 |---|---|---|
-| `doc_id` | TEXT PK | The document decided on. Keyed per document, not per flag: a document's status is one decision. |
+| `doc_id` | TEXT | The document decided on. |
 | `flag` | TEXT | The flag the decision was about. |
-| `action` | TEXT | `confirm` (the flag stands, the document leaves the queue) · `keep` (stays on the queue) · `edit` (a correction is needed; `note` says what). |
+| `action` | TEXT | `confirm` (the flag stands, that flag leaves the queue) · `keep` (stays on the queue) · `edit` (a correction is needed; `note` says what). |
 | `note` | TEXT | The reviewer's note. Required for `edit`. |
 | `created_at` | TEXT | `datetime('now')`. |
 
+The primary key is `(doc_id, flag)`, not `doc_id`. A document can carry more than
+one flag — four doctrine PDFs are both a `duplicate` (their `tvl-ingest` copy)
+and `unclear` (no numbered headings) — and settling one must not erase the other.
+An older document-level table is migrated to this shape on first use.
+
 A decision is also appended to `corrections.jsonl` in the data root, so a lost
-database still has the history. `confirm` and `edit` clear the document's flags
-everywhere they are read; `keep` leaves them.
+database still has the history. `confirm` and `edit` clear that flag everywhere
+it is read; `keep` leaves it.
 
 ---
 
