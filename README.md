@@ -36,8 +36,17 @@ in this plugin writes to a source file, and a review decision goes to a
 ## Install
 
 The Vault is a desktop plugin. In the Hermes desktop: **Install from Git**, paste
-this repository's URL, tick **Desktop**, install unpinned. Nothing to build, no
-dependencies to install.
+
+    https://github.com/trillionverselabs-boop/tvl-vault
+
+tick **Desktop**, install unpinned. Nothing to build, no dependencies to install.
+
+**The desktop app and the backend are on different machines.** The app runs on
+Lisa's laptop and connects to lisacore over SSH, so the app's *screen half* must
+be installed **on the laptop** — that is what Install from Git does (it clones
+the repo on the machine the app runs on). Installing the agent half on lisacore
+alone installs nothing visible, and a `~/.hermes/desktop-plugins/` folder written
+on lisacore is invisible to the app.
 
 > The repository is **private**. Do not make it public, and do not add a remote,
 > without Lisa saying so.
