@@ -48,7 +48,8 @@ the repo on the machine the app runs on). Installing the agent half on lisacore
 alone installs nothing visible, and a `~/.hermes/desktop-plugins/` folder written
 on lisacore is invisible to the app.
 
-> The repository is **private**. Do not make it public, and do not add a remote,
+> The repository is **public for now** so the desktop app on Lisa's laptop can
+> install it; it gets **deleted once the install is done**. Do not make it public
 > without Lisa saying so.
 
 ---
