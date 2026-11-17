@@ -1054,7 +1054,7 @@ function Page({ ctx }) {
 export default {
   id: 'tvl-vault',      // must equal the folder name
   name: NAME,
-  defaultEnabled: false,
+  defaultEnabled: true,
   register(ctx) {
     ctx.register({ id: 'page', area: ROUTES_AREA, data: { path: '/tvl-vault' }, render: () => jsx(Page, { ctx }) })
     ctx.register({ id: 'nav', area: SIDEBAR_NAV_AREA, data: { path: '/tvl-vault', label: NAME, codicon: 'database' } })
