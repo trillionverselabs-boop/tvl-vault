@@ -73,3 +73,28 @@ def test_excluded_directories_are_skipped(tmp_path):
     names = [d.path.name for d in sources.scan(tmp_path)]
     assert "real.md" in names
     assert "index.js" not in names
+
+
+# The name-key rule exists for one case: a browser's second download of the same
+# file (`doc (1).pdf`), whose bytes differ because PDF metadata changes. It must
+# not fold two different documents that merely share a common filename — the
+# corpus has 13 `README.md` files and they are 13 different documents.
+def test_same_named_files_in_different_folders_are_not_duplicates(tmp_path):
+    a = tmp_path / "one"
+    b = tmp_path / "two"
+    a.mkdir()
+    b.mkdir()
+    _touch(a, "README.md", b"# One\n")
+    _touch(b, "README.md", b"# Two, entirely different\n")
+    mds = [d for d in sources.scan(tmp_path) if d.kind == "markdown"]
+    assert len(mds) == 2
+    assert all(d.duplicates == [] for d in mds)
+
+
+def test_a_browser_redownload_folds_onto_the_plain_name(tmp_path):
+    _touch(tmp_path, "doc.pdf", b"%PDF-1.4 first save")
+    _touch(tmp_path, "doc (1).pdf", b"%PDF-1.4 second save, same document")
+    pdfs = [d for d in sources.scan(tmp_path) if d.kind == "pdf"]
+    assert len(pdfs) == 1
+    assert pdfs[0].path.name == "doc.pdf"
+    assert [p.name for p in pdfs[0].duplicates] == ["doc (1).pdf"]

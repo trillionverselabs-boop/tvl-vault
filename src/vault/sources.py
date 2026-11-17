@@ -75,25 +75,39 @@ def scan(root: Path) -> list[Document]:
         h = hashlib.sha256(p.read_bytes()).hexdigest()
         by_hash.setdefault(h, []).append(p)
 
-    # name key -> canonical path. First (sorted) path wins, so `doc.pdf` beats
-    # `doc (1).pdf`, which sorts after it.
+    # name key -> canonical path. A browser's second download (`doc (1).pdf`)
+    # has different bytes, so it never shares a hash group with `doc.pdf`;
+    # this second pass folds it onto the plain name. A file whose name carries
+    # no download counter is never folded — 13 different `README.md` files are
+    # 13 documents, not one.
     by_name: dict[tuple[str, str], Path] = {}
     docs: list[Document] = []
+    prepared = []
     for h, paths in by_hash.items():
-        canonical = paths[0]
+        canonical = _plainest(paths)
+        prepared.append((h, canonical, [p for p in paths if p != canonical]))
+    # plain names first, so `doc.pdf` claims the key before `doc (1).pdf` arrives
+    prepared.sort(key=lambda t: (0 if _DOWNLOAD_SUFFIX_RE.match(t[1].stem) is None else 1, t[1].name))
+    for h, canonical, rest in prepared:
         key = (kind_of(canonical), _name_key(canonical.name))
-        taken = by_name.get(key)
-        if taken is not None:
-            # fold this copy's whole hash group into the canonical document
-            existing = next(d for d in docs if d.path == taken)
-            existing.duplicates.extend([canonical] + paths[1:])
+        if _DOWNLOAD_SUFFIX_RE.match(canonical.stem) and key in by_name:
+            existing = next(d for d in docs if d.path == by_name[key])
+            existing.duplicates.extend([canonical] + rest)
             continue
         by_name[key] = canonical
         docs.append(Document(
             path=canonical, kind=kind_of(canonical), sha256=h, size=canonical.stat().st_size,
-            is_junk=is_junk_name(canonical.name), duplicates=paths[1:],
+            is_junk=is_junk_name(canonical.name), duplicates=rest,
         ))
     return docs
+
+
+def _plainest(paths: list[Path]) -> Path:
+    """The path with no download counter in its name; the first sorted if none."""
+    for p in paths:
+        if _DOWNLOAD_SUFFIX_RE.match(p.stem) is None:
+            return p
+    return paths[0]
 
 
 # `name (1)`, `name-2`, `name 1` — a browser's second download of the same file.
