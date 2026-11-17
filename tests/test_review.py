@@ -68,14 +68,17 @@ def test_a_confirmation_leaves_the_queue_and_a_keep_stays(tmp_path):
     db = _seed(tmp_path)
     review.write_flags(db, review.compute_flags(db))
     dup = db.execute("SELECT doc_id FROM flags WHERE flag='duplicate'").fetchone()[0]
-    unc = db.execute("SELECT doc_id FROM flags WHERE flag='unclear'").fetchone()[0]
-    assert {f["doc_id"] for f in review.queue(db)} >= {dup, unc}
+    assert "duplicate" in {f["flag"] for f in review.queue(db) if f["doc_id"] == dup}
 
     review.write_correction(db, dup, "duplicate", "confirm")
-    assert dup not in {f["doc_id"] for f in review.queue(db)}
+    assert "duplicate" not in {f["flag"] for f in review.queue(db) if f["doc_id"] == dup}
 
-    review.write_correction(db, unc, "unclear", "keep")
-    assert unc in {f["doc_id"] for f in review.queue(db)}
+    # a `keep` on another flag of the same document leaves that flag queued
+    db.execute("INSERT OR REPLACE INTO flags(doc_id,section_id,flag,reason,evidence) "
+               "VALUES(?,NULL,'unclear','no text','e')", (dup,))
+    db.commit()
+    review.write_correction(db, dup, "unclear", "keep")
+    assert "unclear" in {f["flag"] for f in review.queue(db) if f["doc_id"] == dup}
 
 
 def test_corrections_are_recorded_without_touching_the_source(tmp_path):
@@ -93,8 +96,26 @@ def test_corrections_are_recorded_without_touching_the_source(tmp_path):
     assert review.corrections(db)[0]["doc_id"] == doc_id
 
 
-def test_a_decision_is_idempotent_per_document(tmp_path):
-    """One status per document. A second decision replaces the first."""
+def test_a_decision_on_one_flag_leaves_the_other_on_the_queue(tmp_path):
+    """Confirming a duplicate must not erase the unclear flag.
+
+    Four doctrine PDFs on the real corpus carried both flags at once (a
+    `tvl-ingest` copy, and no numbered headings). The old document-level key
+    cleared both, so the reading was never reviewed.
+    """
+    (tmp_path / "a.pdf").write_bytes(b"%PDF-1.4 no extractable text")
+    (tmp_path / "b.pdf").write_bytes(b"%PDF-1.4 no extractable text")
+    db = index.rebuild(tmp_path, tmp_path / "vault.db")
+    review.write_flags(db, review.compute_flags(db))
+    doc = db.execute("SELECT doc_id FROM flags WHERE flag='duplicate'").fetchone()[0]
+    assert {f["flag"] for f in review.queue(db) if f["doc_id"] == doc} == {"duplicate", "unclear"}
+
+    review.write_correction(db, doc, "duplicate", "confirm")
+    assert {f["flag"] for f in review.queue(db) if f["doc_id"] == doc} == {"unclear"}
+
+
+def test_a_decision_is_idempotent_per_flag(tmp_path):
+    """One status per (document, flag). A second decision replaces the first."""
     db = _seed(tmp_path)
     review.write_flags(db, review.compute_flags(db))
     doc_id = db.execute("SELECT doc_id FROM flags WHERE flag='duplicate'").fetchone()[0]

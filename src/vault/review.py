@@ -380,13 +380,36 @@ def _run_conflicts(db: sqlite3.Connection, llm) -> list[dict]:
 
 _CORRECTIONS_SCHEMA = """
 CREATE TABLE IF NOT EXISTS corrections (
-  doc_id    TEXT PRIMARY KEY,
+  doc_id    TEXT NOT NULL,
   flag      TEXT NOT NULL,
   action    TEXT NOT NULL,
   note      TEXT DEFAULT '',
-  created_at TEXT DEFAULT (datetime('now'))
+  created_at TEXT DEFAULT (datetime('now')),
+  PRIMARY KEY (doc_id, flag)
 )
 """
+
+
+def _ensure_corrections(db: sqlite3.Connection) -> None:
+    """Create the table, and move an older document-level table to per-flag.
+
+    The first version keyed a decision on `doc_id` alone, so confirming one flag
+    silently cleared every other flag on the same document. Four doctrine PDFs
+    on the real corpus carried both `duplicate` (their `tvl-ingest` copy) and
+    `unclear` (no numbered headings); the duplicate confirmation erased the
+    reading review. The key is now `(doc_id, flag)`.
+    """
+    db.execute(_CORRECTIONS_SCHEMA)
+    pk = [r[1] for r in db.execute("PRAGMA table_info(corrections)") if r[5]]
+    if pk == ["doc_id", "flag"]:
+        return
+    db.execute("ALTER TABLE corrections RENAME TO corrections_legacy")
+    db.execute(_CORRECTIONS_SCHEMA)
+    db.execute(
+        "INSERT OR IGNORE INTO corrections(doc_id,flag,action,note,created_at) "
+        "SELECT doc_id,flag,action,note,created_at FROM corrections_legacy")
+    db.execute("DROP TABLE corrections_legacy")
+    db.commit()
 
 
 def correction_path() -> Path:
@@ -398,14 +421,14 @@ def write_correction(db: sqlite3.Connection, doc_id: str, flag: str,
                      action: str, note: str = "") -> dict:
     """Record one review decision. Idempotent per document.
 
-    Keyed on `doc_id`, not on `(doc_id, flag)`: a document's status is one
-    decision. A `(doc_id, flag)` key would let confirming the duplicate flag
-    silently erase a decision already taken on the same document's other flag.
+    Keyed on `(doc_id, flag)`. A document can carry more than one flag — a
+    confirmed duplicate that still needs its reading reviewed — and a decision
+    about one must not erase the other.
     """
-    db.executescript(_CORRECTIONS_SCHEMA)
+    _ensure_corrections(db)
     db.execute(
         "INSERT INTO corrections(doc_id, flag, action, note) VALUES(?,?,?,?) "
-        "ON CONFLICT(doc_id) DO UPDATE SET flag=excluded.flag, action=excluded.action, "
+        "ON CONFLICT(doc_id, flag) DO UPDATE SET action=excluded.action, "
         "note=excluded.note, created_at=datetime('now')",
         (doc_id, flag, action, note),
     )
@@ -432,37 +455,44 @@ def _append_jsonl(record: dict) -> None:
 
 def corrections(db: sqlite3.Connection) -> list[dict]:
     """Every recorded decision, newest first."""
-    db.executescript(_CORRECTIONS_SCHEMA)
+    _ensure_corrections(db)
     return [dict(r) for r in db.execute(
         "SELECT doc_id, flag, action, note, created_at FROM corrections "
-        "ORDER BY created_at DESC, doc_id")]
+        "ORDER BY created_at DESC, doc_id, flag")]
+
+
+def resolved_flags(db: sqlite3.Connection) -> set[tuple[str, str]]:
+    """`(doc_id, flag)` pairs the human has settled.
+
+    `confirm` and `edit` clear that flag's effect; `keep` leaves it. Per flag,
+    not per document — a document can be a confirmed duplicate *and* still need
+    its reading reviewed.
+    """
+    _ensure_corrections(db)
+    return {(r["doc_id"], r["flag"]) for r in db.execute(
+        "SELECT doc_id, flag FROM corrections WHERE action IN ('confirm','edit')")}
 
 
 def resolved_doc_ids(db: sqlite3.Connection) -> set[str]:
-    """Documents the human has decided on. `confirm` clears their flags; `keep`
-    leaves them on the queue so the next reviewer sees them again."""
-    db.executescript(_CORRECTIONS_SCHEMA)
-    out: set[str] = set()
-    for row in db.execute("SELECT doc_id, action FROM corrections"):
-        if row["action"] in ("confirm", "edit"):
-            out.add(row["doc_id"])
-    return out
+    """Documents the human has decided on at all. The conflict pass skips these."""
+    _ensure_corrections(db)
+    return {r["doc_id"] for r in db.execute(
+        "SELECT doc_id FROM corrections WHERE action IN ('confirm','edit')")}
 
 
 def queue(db: sqlite3.Connection) -> list[dict]:
     """The review queue as the UI should show it.
 
-    `resolved_doc_ids` is applied here, once, so every reader (the /review route,
-    the CLI summary) agrees: a confirmed document leaves the queue and is shown
-    as current; a `keep` decision stays.
-
-    Images are left out entirely. The deterministic pass records a byte-identical
-    image as a `duplicate` flag — that is a fact, and `/stats` still counts it —
-    but a duplicate *decision* is for a human reading text. On the real corpus
-    60 of the 118 duplicate flags were images, so the queue was two-thirds
-    pictures nobody could keep, confirm or edit.
+    `resolved_flags` is applied here, once, so every reader (the /review route,
+    the CLI summary) agrees: a confirmed *flag* leaves the queue and the
+    document's other flags stay. Images are left out entirely. The
+    deterministic pass records a byte-identical image as a `duplicate` flag —
+    that is a fact, and `/stats` still counts it — but a duplicate *decision*
+    is for a human reading text. On the real corpus 60 of the 118 duplicate
+    flags were images, so the queue was two-thirds pictures nobody could keep,
+    confirm or edit.
     """
-    done = resolved_doc_ids(db)
+    done = resolved_flags(db)
     image_ids = {r[0] for r in db.execute(
         "SELECT doc_id FROM documents WHERE kind='image'")}
     rows = db.execute(
@@ -471,6 +501,6 @@ def queue(db: sqlite3.Connection) -> list[dict]:
         "WHERE f.flag!='current' ORDER BY f.flag").fetchall()
     sev = {"conflict": 0, "outdated": 1, "duplicate": 2, "unclear": 3}
     flags = [dict(r) for r in rows
-             if r["doc_id"] not in done and r["doc_id"] not in image_ids]
+             if (r["doc_id"], r["flag"]) not in done and r["doc_id"] not in image_ids]
     flags.sort(key=lambda f: sev.get(f["flag"], 9))
     return flags
