@@ -504,3 +504,115 @@ def queue(db: sqlite3.Connection) -> list[dict]:
              if (r["doc_id"], r["flag"]) not in done and r["doc_id"] not in image_ids]
     flags.sort(key=lambda f: sev.get(f["flag"], 9))
     return flags
+
+
+# ── the comparison a decision needs ──────────────────────────────────────
+# A queue row says *what* is wrong — "byte-identical copy also exists: <path>".
+# It cannot say what the document actually says, and a decision made without
+# reading is not a review. `compare` is the payload for that: the document's own
+# text, the copy it is measured against, and a recommendation with its reason.
+
+_DOWNLOAD_RE = re.compile(r"^(.*?)\s*(?:\(\d+\)|[-_ ]\d+)$")
+
+# Output of the video pipeline: no headings because it was never written to be
+# read. A note *about* it is not knowledge about the doctrine.
+_DERIVED_DIRS = ("/compositions/", "/frames/", "/render/", "/output/")
+_DERIVED_NAMES = ("concat", "narration", "transcript", "scene", "frame", "prelude", "storyboard")
+
+_TEXT_KINDS = {"markdown", "text", "html", "csv"}
+
+
+def _is_derived_output(path: str) -> bool:
+    p = path.lower()
+    name = Path(p).name
+    return any(d in p for d in _DERIVED_DIRS) or any(name.startswith(n) for n in _DERIVED_NAMES)
+
+
+def _sections_brief(db: sqlite3.Connection, doc_id: str, limit: int = 8, chars: int = 900):
+    rows = db.execute(
+        "SELECT ord, title, level, body FROM sections WHERE doc_id=? ORDER BY ord LIMIT ?",
+        (doc_id, limit)).fetchall()
+    out = []
+    for r in rows:
+        body = (r["body"] or "").strip()
+        if not body:
+            continue
+        out.append({"ord": r["ord"], "title": r["title"] or "", "level": r["level"],
+                    "body": body[:chars], "words": len(body.split())})
+    total = db.execute("SELECT COUNT(*) FROM sections WHERE doc_id=?", (doc_id,)).fetchone()[0]
+    return out, total
+
+
+def _excerpt(path: str, kind: str, limit: int = 1600) -> str:
+    """The file's own opening text — for a document the reader could not parse."""
+    if kind not in _TEXT_KINDS:
+        return ""
+    try:
+        text = Path(path).read_text(errors="replace")
+    except OSError:
+        return ""
+    return " ".join(text.split())[:limit]
+
+
+def recommend(doc: dict, flag: str) -> dict:
+    """What I would do, and why — stated so it can be argued with."""
+    if flag == "duplicate":
+        copies = [c["path"] for c in doc.get("counterparts", [])]
+        suffixed = [p for p in copies if _DOWNLOAD_RE.match(Path(p).stem)]
+        if suffixed:
+            return {"action": "confirm",
+                    "why": "The copy is a browser re-download (" +
+                           ", ".join(Path(p).name for p in suffixed) +
+                           "). The bytes are identical, so keep the cleanly named file."}
+        if copies:
+            return {"action": "keep",
+                    "why": f"Same bytes under {len(copies)} other clean name(s). Pick the folder "
+                           "that is the source of truth, delete the rest, then confirm."}
+        return {"action": "keep", "why": "Flagged as a duplicate but no copy path was recorded."}
+
+    if flag == "unclear":
+        if _is_derived_output(doc["path"]):
+            return {"action": "edit",
+                    "why": "This is pipeline output (a video composition or a concat/narration "
+                           "file), not a source document. It has no headings because it was never "
+                           "written to be read — mark it not-knowledge."}
+        if doc["kind"] == "pdf":
+            return {"action": "keep",
+                    "why": "A real document the reader could not parse (no numbered headings). "
+                           "Keep it — the reader needs fixing, not the file."}
+        return {"action": "keep", "why": "No headings found. Read the excerpt and decide."}
+
+    return {"action": "keep", "why": "No rule applies. Read it and decide."}
+
+
+def compare(db: sqlite3.Connection, doc_id: str, flag: str,
+            limit: int = 8, chars: int = 900) -> dict:
+    """Everything the review UI needs to show the actual text, not just a filename."""
+    row = db.execute("SELECT * FROM documents WHERE doc_id=?", (doc_id,)).fetchone()
+    if row is None:
+        raise KeyError(doc_id)
+    doc = dict(row)
+    doc["sections"], doc["section_count"] = _sections_brief(db, doc_id, limit, chars)
+    doc["excerpt"] = _excerpt(doc["path"], doc["kind"])
+    doc["counterparts"] = []
+    if flag == "duplicate":
+        for r in db.execute("SELECT path FROM duplicates WHERE sha256=?", (doc["sha256"],)):
+            cp = r["path"]
+            other = db.execute(
+                "SELECT doc_id, title, kind FROM documents WHERE path=?", (cp,)).fetchone()
+            doc["counterparts"].append({
+                "path": cp, "name": Path(cp).name,
+                "listed": other is not None,
+                "title": other["title"] if other else Path(cp).stem,
+                "kind": other["kind"] if other else doc["kind"],
+            })
+    frow = db.execute(
+        "SELECT reason, evidence FROM flags WHERE doc_id=? AND flag=?", (doc_id, flag)).fetchone()
+    return {
+        "doc_id": doc_id,
+        "flag": flag,
+        "reason": frow["reason"] if frow else "",
+        "evidence": frow["evidence"] if frow else "",
+        "document": doc,
+        "recommendation": recommend(doc, flag),
+    }

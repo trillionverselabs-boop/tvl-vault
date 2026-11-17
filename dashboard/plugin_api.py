@@ -196,6 +196,23 @@ async def review_queue() -> dict:
     return {"flags": _review.queue(db)}
 
 
+@router.get("/review/{doc_id}")
+async def review_item(doc_id: str, flag: str = "") -> dict:
+    """The text behind one queue row.
+
+    A row says *what* is wrong ("byte-identical copy also exists: <path>"); this
+    says what the document actually says — its own sections, the copy it is
+    measured against, and a recommendation with its reason.
+    """
+    if not _DOC_ID.fullmatch(doc_id):
+        raise HTTPException(400, "bad doc_id")
+    db = _db()
+    try:
+        return _review.compare(db, doc_id, flag)
+    except KeyError:
+        raise HTTPException(404, "no such document")
+
+
 @router.post("/conflicts")
 async def find_conflicts() -> dict:
     """Run the model-assisted conflict pass, on demand.

@@ -13,7 +13,7 @@ import { host, useValue, ROUTES_AREA, SIDEBAR_NAV_AREA } from '@hermes/plugin-sd
 import { useState, useEffect, useRef } from 'react'
 import { jsx, jsxs } from 'react/jsx-runtime'
 
-const BUILD = '0.1.0 · ui2'    // bump on every UI change — how you know the app reloaded
+const BUILD = '0.1.0 · ui3'    // bump on every UI change — how you know the app reloaded
 const NAME = 'The Vault'
 
 // ── the approved palette. Exact values; do not substitute. ────────────────
@@ -177,6 +177,26 @@ const CSS = `
   .vz-cite button:hover{color:var(--vz-text)}
   .vz-note{margin-top:14px;font-size:12px;color:var(--vz-micro);display:flex;gap:8px;align-items:flex-start}
   .vz-review{overflow-y:auto;padding:18px}
+  .vz-cmp{margin-top:11px;border:1px solid var(--vz-border);border-radius:9px;
+    background:var(--vz-panel2);overflow:hidden}
+  .vz-cmprec{padding:10px 12px;border-bottom:1px solid var(--vz-border);
+    background:rgba(245,158,11,.07);font-size:12.5px;line-height:1.55;color:var(--vz-text)}
+  .vz-cmprec b{color:var(--vz-sel);font-family:${C.mono};font-size:10px;font-weight:600;
+    letter-spacing:.1em;text-transform:uppercase;display:block;margin-bottom:3px}
+  .vz-cmpgrid{display:grid;grid-template-columns:1fr 1fr}
+  .vz-cmpcol{padding:11px 12px;min-width:0}
+  .vz-cmpcol + .vz-cmpcol{border-left:1px solid var(--vz-border)}
+  .vz-cmpcol > h5{margin:0 0 9px;font-size:10.5px;font-family:${C.mono};font-weight:600;
+    letter-spacing:.08em;color:var(--vz-micro);text-transform:uppercase;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .vz-cmpsec{margin:0 0 10px}
+  .vz-cmpsec h6{margin:0 0 3px;font-size:12px;font-weight:600;color:var(--vz-text)}
+  .vz-cmpsec p{margin:0;font-size:12px;line-height:1.55;color:var(--vz-muted);
+    overflow:hidden;display:-webkit-box;-webkit-line-clamp:7;-webkit-box-orient:vertical}
+  .vz-cmpex{margin:0;font-size:12px;line-height:1.55;color:var(--vz-muted);
+    white-space:pre-wrap;word-break:break-word}
+  .vz-cmpmore{margin-top:9px;font-size:11px;color:var(--vz-micro);font-family:${C.mono}}
+  .vz-cmperr{padding:10px 12px;font-size:12.5px;color:${C.conflict}}
   .vz-revlist{display:grid;gap:10px;max-width:900px}
   .vz-revrun{border:1px solid var(--vz-border);border-radius:10px;background:var(--vz-panel2);
     padding:13px 15px;margin-bottom:4px}
@@ -546,7 +566,114 @@ function WallPane({ ctx, wall, onSelect, onOpen }) {
 //   keep    — leave it on the queue for the next pass
 //   edit    — a correction is needed; the note says what (the source is never
 //             rewritten, rule 4)
-function ReviewPane({ ctx, review, onSelect, onDecide, onFindConflicts, decisions, busy, conflictBusy, conflictNote }) {
+/* ── the comparison a decision needs ────────────────────────────────────── */
+// A queue row carries a filename and a reason. That is not enough to decide
+// anything: the reviewer has to see the text. This box fetches `/review/<id>`
+// when it is opened and lays the document against whatever it is measured
+// against — the copy for a duplicate, the file's own words for an unclear one.
+function CompareBox({ restRef, docId, flag }) {
+  const [open, setOpen] = useState(false)
+  const [data, setData] = useState(null)
+  const [error, setError] = useState(null)
+
+  useEffect(() => {
+    if (!open || data) return
+    let alive = true
+    restRef.current('/review/' + docId + '?flag=' + encodeURIComponent(flag))
+      .then(res => { if (!alive) return; setData(res); setError(res && res.error ? res.error : null) })
+      .catch(e => { if (alive) setError(String(e)) })
+    return () => { alive = false }
+  }, [open, data, docId, flag, restRef])
+
+  if (!open) {
+    return jsx('button', {
+      className: 'vz-act',
+      onClick: () => setOpen(true),
+      children: 'Show the text',
+    })
+  }
+  if (error) {
+    return jsx('div', {
+      className: 'vz-cmp',
+      children: jsx('p', { className: 'vz-cmperr', children: 'Could not load the text: ' + error }),
+    })
+  }
+  if (!data) {
+    return jsx('div', {
+      className: 'vz-cmp',
+      children: jsx('p', { className: 'vz-cmpmore', children: 'Reading…' }),
+    })
+  }
+
+  const doc = data.document || {}
+  const rec = data.recommendation || {}
+  const copies = doc.counterparts || []
+  const secs = doc.sections || []
+  const shared = secs[0] ? secs[0].body : (doc.excerpt || '')
+
+  return jsxs('div', {
+    className: 'vz-cmp',
+    children: [
+      jsxs('div', {
+        className: 'vz-cmprec',
+        children: [
+          jsx('b', { children: 'My recommendation · ' + (rec.action || 'keep') }),
+          jsx('span', { children: ' ' + (rec.why || 'Read it and decide.') }),
+        ],
+      }),
+      jsxs('div', {
+        className: 'vz-cmpgrid',
+        children: [
+          /* left — the document itself */
+          jsxs('div', {
+            className: 'vz-cmpcol',
+            children: [
+              jsx('h5', { children: (doc.kind || 'document') + ' · ' + (doc.path || '') }),
+              secs.length
+                ? secs.map(s => jsxs('div', {
+                    className: 'vz-cmpsec',
+                    children: [
+                      jsx('h6', { children: s.title || '—' }),
+                      jsx('p', { children: s.body }),
+                    ],
+                  }, s.ord))
+                : jsx('p', { className: 'vz-cmpex', children: doc.excerpt || 'No text could be extracted.' }),
+              jsx('div', { className: 'vz-cmpmore', children: (doc.section_count || 0) + ' sections' }),
+            ],
+          }),
+          /* right — what it is measured against */
+          jsxs('div', {
+            className: 'vz-cmpcol',
+            children: [
+              jsx('h5', { children: copies.length ? 'The copy' : 'Why it is flagged' }),
+              copies.length
+                ? copies.map(c => jsxs('div', {
+                    className: 'vz-cmpsec',
+                    children: [
+                      jsx('h6', { children: c.name }),
+                      jsx('p', { children: c.path }),
+                    ],
+                  }, c.path))
+                : jsx('p', { className: 'vz-cmpex', children: data.reason || 'No reason recorded.' }),
+              copies.length
+                ? jsxs('div', {
+                    className: 'vz-cmpsec',
+                    children: [
+                      jsx('h6', { children: 'The same text' }),
+                      jsx('p', { children: 'Identical bytes — sha256 ' + String(doc.sha256 || '').slice(0, 16) + '…' }),
+                    ],
+                  })
+                : null,
+              shared ? jsx('p', { className: 'vz-cmpex', children: shared }) : null,
+            ],
+          }),
+        ],
+      }),
+    ],
+  })
+}
+
+function ReviewPane({ ctx, restRef, review, onSelect, onDecide, onFindConflicts, decisions, busy, conflictBusy, conflictNote }) {
   if (!review) return jsx(Loading, {})
   const flags = review.flags || []
   const ACTION_LABEL = {
@@ -599,6 +726,7 @@ function ReviewPane({ ctx, review, onSelect, onDecide, onFindConflicts, decision
               style: { color: C.current },
               children: 'Recorded: ' + done.label + (done.note ? ' — ' + done.note : ''),
             }) : null,
+            jsx(CompareBox, { restRef, docId: f.doc_id, flag: f.flag }),
             jsxs('div', {
               className: 'acts',
               children: [
@@ -993,7 +1121,7 @@ function Page({ ctx }) {
                 ctx, restRef, onOpen: sel => openDocument(sel),
               }) : null,
               tab === 'review' ? jsx(ReviewPane, {
-                ctx, review, decisions, busy, conflictBusy, conflictNote,
+                ctx, restRef, review, decisions, busy, conflictBusy, conflictNote,
                 onSelect: f => select({
                   id: f.doc_id, kind: 'document', label: f.title, group: f.kind, flag: f.flag, path: f.path,
                 }), onDecide: decide, onFindConflicts: findConflicts }) : null,

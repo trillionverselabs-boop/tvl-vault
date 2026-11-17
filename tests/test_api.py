@@ -111,6 +111,42 @@ def test_document_detail_has_sections(api):
     assert isinstance(d["sections"], list)
 
 
+def test_the_review_item_shows_the_text_behind_a_row(api):
+    """A queue row carries a filename and a reason; the decision needs the text."""
+    _, client, _ = api
+    row = next(r for r in client.get("/review").json()["flags"] if r["flag"] == "unclear")
+
+    out = client.get(f"/review/{row['doc_id']}", params={"flag": row["flag"]}).json()
+
+    assert out["doc_id"] == row["doc_id"]
+    assert out["reason"] == row["reason"]
+    assert out["recommendation"]["action"] in ("confirm", "keep", "edit")
+    assert out["recommendation"]["why"], "a recommendation with no reason is not reviewable"
+    assert isinstance(out["document"]["sections"], list)
+
+
+def test_a_duplicate_row_names_the_copy_it_is_measured_against(api):
+    _, client, db_path = api
+    root = db_path.parent
+    (root / "alpha-copy.md").write_text("# Alpha Doctrine\n\nsabotage contest logic\n")
+    index.rebuild(root, db_path)
+
+    row = next(r for r in client.get("/review").json()["flags"] if r["flag"] == "duplicate")
+
+    out = client.get(f"/review/{row['doc_id']}", params={"flag": "duplicate"}).json()
+
+    assert out["document"]["counterparts"], "the copy's path is the whole point"
+    assert {c["name"] for c in out["document"]["counterparts"]} == {"alpha.md"}
+    # A clean name is a judgement call, not a rule: leave it to the human.
+    assert out["recommendation"]["action"] == "keep"
+
+
+def test_an_unknown_review_item_is_a_404(api):
+    _, client, _ = api
+    assert client.get("/review/ffffffffffffffff").status_code == 404
+    assert client.get("/review/not-a-doc-id").status_code == 400
+
+
 def test_bad_doc_id_is_refused(api):
     _, client, _ = api
     assert client.get("/document/../../etc/passwd").status_code in (400, 404)
@@ -216,6 +252,16 @@ def test_the_desktop_review_tab_offers_a_decision_per_flag():
     # the decision must be posted to the backend, not only held in local state
     assert re.search(r"restRef\.current\(\s*'/review'", src), "decision is not posted"
     assert re.search(r"method:\s*'POST'", src), "the decision is not a POST"
+
+
+def test_the_review_row_shows_the_text_not_just_the_filename():
+    """A reviewer cannot decide from a path. The row must offer the document's
+    own text, and that request must go to the per-document comparison route."""
+    src = _code_only(JS.read_text())
+    assert "Show the text" in src, "the row does not offer the text"
+    assert re.search(r"/review/' \+ docId", src), "the comparison is not fetched per document"
+    assert "recommendation" in src, "no recommendation is shown"
+    assert "counterparts" in src, "the duplicate's copy is not shown"
 
 
 def test_every_area_and_route_the_page_registers_is_inside_the_plugin():

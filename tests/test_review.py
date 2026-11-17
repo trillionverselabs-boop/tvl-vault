@@ -142,3 +142,81 @@ def test_the_conflict_pass_needs_a_model_and_is_not_part_of_the_flags(tmp_path):
     db = _seed(tmp_path)
     assert review.conflicts(db, None) == []
     assert [f for f in review.compute_flags(db) if f["flag"] == "conflict"] == []
+
+
+# ── the comparison a decision needs ──────────────────────────────────────
+
+def test_compare_shows_the_documents_own_text(tmp_path):
+    (tmp_path / "a.md").write_text("# Alpha\n\n## One\n\nbody one\n\n## Two\n\nbody two\n")
+    db = index.rebuild(tmp_path, tmp_path / "vault.db")
+    review.write_flags(db, review.compute_flags(db))
+    doc = db.execute("SELECT doc_id FROM documents WHERE path LIKE '%a.md'").fetchone()[0]
+
+    out = review.compare(db, doc, "unclear")
+
+    assert out["document"]["title"] == "Alpha"
+    assert [s["title"] for s in out["document"]["sections"]] == ["One", "Two"]
+    assert out["document"]["sections"][0]["body"].startswith("body one")
+    # `# Alpha` is a section too — it is the title, so its body is empty and it
+    # is counted but not shown.
+    assert out["document"]["section_count"] == 3
+
+
+def test_a_browser_redownload_copy_is_recommended_confirmed(tmp_path):
+    (tmp_path / "doc.md").write_text("# Same\n\nbody\n")
+    (tmp_path / "doc (1).md").write_text("# Same\n\nbody\n")
+    db = index.rebuild(tmp_path, tmp_path / "vault.db")
+    review.write_flags(db, review.compute_flags(db))
+    dup = db.execute("SELECT doc_id FROM flags WHERE flag='duplicate'").fetchone()[0]
+
+    out = review.compare(db, dup, "duplicate")
+
+    assert out["recommendation"]["action"] == "confirm"
+    assert "re-download" in out["recommendation"]["why"]
+    assert out["document"]["counterparts"], "the copy's path must be shown"
+
+
+def test_a_clean_named_copy_is_left_to_the_human(tmp_path):
+    (tmp_path / "one.md").write_text("# Same\n\nbody\n")
+    (tmp_path / "two.md").write_text("# Same\n\nbody\n")
+    db = index.rebuild(tmp_path, tmp_path / "vault.db")
+    review.write_flags(db, review.compute_flags(db))
+    dup = db.execute("SELECT doc_id FROM flags WHERE flag='duplicate'").fetchone()[0]
+
+    out = review.compare(db, dup, "duplicate")
+
+    assert out["recommendation"]["action"] == "keep"
+    assert "source of truth" in out["recommendation"]["why"]
+
+
+def test_pipeline_output_is_recommended_not_knowledge(tmp_path):
+    d = tmp_path / "compositions"
+    d.mkdir()
+    (d / "scene2.html").write_text("<html><body>no headings</body></html>")
+    db = index.rebuild(tmp_path, tmp_path / "vault.db")
+    review.write_flags(db, review.compute_flags(db))
+    doc = db.execute("SELECT doc_id FROM documents WHERE path LIKE '%scene2.html'").fetchone()[0]
+
+    out = review.compare(db, doc, "unclear")
+
+    assert out["recommendation"]["action"] == "edit"
+    assert "pipeline output" in out["recommendation"]["why"]
+    assert out["document"]["excerpt"], "the file's own text should be shown"
+
+
+def test_an_unparseable_pdf_is_kept_for_the_reader(tmp_path):
+    (tmp_path / "doc.pdf").write_bytes(b"%PDF-1.4 no text at all")
+    db = index.rebuild(tmp_path, tmp_path / "vault.db")
+    review.write_flags(db, review.compute_flags(db))
+    doc = db.execute("SELECT doc_id FROM documents").fetchone()[0]
+
+    out = review.compare(db, doc, "unclear")
+
+    assert out["recommendation"]["action"] == "keep"
+    assert "reader" in out["recommendation"]["why"]
+
+
+def test_compare_on_an_unknown_document_raises(tmp_path):
+    db = _seed(tmp_path)
+    with pytest.raises(KeyError):
+        review.compare(db, "ffffffffffffffff", "duplicate")
