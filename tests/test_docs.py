@@ -11,6 +11,7 @@ Every number asserted here was produced by a command on this machine on
 
 from __future__ import annotations
 
+import os
 import re
 import subprocess
 import sys
@@ -206,10 +207,16 @@ def test_no_document_advertises_a_tool_the_plugin_does_not_register():
 
 
 def test_the_plugin_still_validates():
-    """The task's own acceptance command, run for real."""
+    """The task's own acceptance command, run for real.
+
+    The autouse fixture points `HERMES_HOME` at a throwaway tree so no test can
+    write Lisa's review log. This command is read-only, and the CLI needs the
+    real profile to resolve itself, so it runs with that one redirect lifted.
+    """
+    env = {k: v for k, v in os.environ.items() if k != "HERMES_HOME"}
     out = subprocess.run(
         ["hermes", "plugins", "validate", ".", "--install-deps"],
-        cwd=str(ROOT), capture_output=True, text=True,
+        cwd=str(ROOT), capture_output=True, text=True, env=env,
     )
     assert out.returncode == 0, out.stdout + out.stderr
     assert "Validation passed." in out.stdout
