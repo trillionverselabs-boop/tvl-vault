@@ -94,6 +94,27 @@ the same rows. It never writes to a source file, and it never calls a model.
 A picture has **no flag at all** — an image makes no claim, so "current" would be
 a false statement about it. The wall shows it as an artifact instead.
 
+### A row shows the text, not just the filename
+
+A queue row says *what* is wrong ("byte-identical copy also exists: `<path>`").
+That cannot be decided on, so every row has **Show the text**, which opens a
+side-by-side: the document's own sections on the left, the copy it is measured
+against on the right, and a recommendation with its reason above both.
+
+The recommendation is deterministic and states its grounds, so it can be argued
+with:
+
+| Flag | Recommendation | Why |
+|---|---|---|
+| `duplicate` | **confirm** when the copy has a browser re-download name (`doc (1).pdf`, `doc-2.pdf`) | the bytes are identical, so keep the cleanly named file |
+| `duplicate` | **keep** when the copies have different clean names | choosing the source-of-truth folder is a judgement call, not a rule |
+| `unclear` | **edit** when the path is pipeline output (`/compositions/`, `concat*`, `scene*`, `narration*`, …) | it was never written to be read; a note about it is not knowledge |
+| `unclear` | **keep** for a real PDF the reader could not parse | the reader needs fixing, not the file |
+
+The left rail is titled *needs review*, so it counts the **queue** (what is left
+to decide), not every flag ever recorded. The KPI "duplicates or disagreements"
+is corpus state and still counts all of them.
+
 ---
 
 ## Where things live

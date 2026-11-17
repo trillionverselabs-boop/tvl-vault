@@ -913,10 +913,17 @@ function Page({ ctx }) {
 
   const docs = (graph && graph.nodes ? graph.nodes : []).filter(n => n.kind === 'document')
   const sections = (graph && graph.nodes ? graph.nodes : []).filter(n => n.kind === 'section')
+  const corpusCounts = {}
+  for (const d of docs) corpusCounts[d.flag] = (corpusCounts[d.flag] || 0) + 1
+
+  // The rail is titled "needs review", so it counts the *queue* — what is left
+  // to decide — not every flag ever recorded. Counting flags disagreed with the
+  // Review tab: 95 duplicate flags, 30 already decided, read as "31 to review"
+  // when 1 was actually left.
+  const queue = (review && review.flags) || []
   const flagCounts = {}
-  for (const d of docs) flagCounts[d.flag] = (flagCounts[d.flag] || 0) + 1
-  const reviewCount = FLAG_ORDER.filter(f => f !== 'current')
-    .reduce((n, f) => n + (flagCounts[f] || 0), 0)
+  for (const f of queue) flagCounts[f.flag] = (flagCounts[f.flag] || 0) + 1
+  const reviewCount = queue.length
 
   function select(node) {
     setSelected(node)
@@ -1105,7 +1112,7 @@ function Page({ ctx }) {
                   jsxs('div', { className: 'vz-kpi', children: [jsx('b', { children: String(sections.length) }), jsx('span', { children: 'sections read' })] }),
                   jsxs('div', { className: 'vz-kpi warn', children: [jsx('b', { children: String(reviewCount) }), jsx('span', { children: 'need a decision' })] }),
                   jsxs('div', { className: 'vz-kpi', children: [
-                    jsx('b', { children: String((flagCounts.duplicate || 0) + (flagCounts.conflict || 0)) }),
+                    jsx('b', { children: String((corpusCounts.duplicate || 0) + (corpusCounts.conflict || 0)) }),
                     jsx('span', { children: 'duplicates or disagreements' }),
                   ] }),
                 ],

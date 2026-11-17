@@ -264,6 +264,15 @@ def test_the_review_row_shows_the_text_not_just_the_filename():
     assert "counterparts" in src, "the duplicate's copy is not shown"
 
 
+def test_the_left_rail_counts_what_is_left_to_decide():
+    """The rail is titled "needs review", so it must agree with the Review tab.
+    Counting every flag ever recorded disagreed: 95 duplicate flags with 30
+    already decided read as "31 to review" when 1 was left."""
+    src = _code_only(JS.read_text())
+    assert "for (const f of queue)" in src, "the rail counts flags, not the queue"
+    assert "corpusCounts" in src, "the corpus KPI lost its own counts"
+
+
 def test_every_area_and_route_the_page_registers_is_inside_the_plugin():
     src = JS.read_text()
     # the page is served at /tvl-vault, the API namespace is /api/plugins/tvl-vault/
