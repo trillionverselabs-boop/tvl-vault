@@ -38,6 +38,12 @@ def _hermes_home() -> Path:
 
 
 def data_root() -> Path:
+    """The profile-scoped data root: `<home>/plugin-data/tvl-vault`.
+
+    Inside Hermes this is `plugins.plugin_storage.plugin_data_dir`. Outside it
+    (the rebuild CLI, a cron, a test) the *same* path is computed by hand — the
+    two must agree, or the CLI builds an index the desktop never reads.
+    """
     home = _hermes_home()
     try:
         from plugins.plugin_storage import plugin_data_dir  # type: ignore
@@ -47,7 +53,7 @@ def data_root() -> Path:
             return p
     except Exception:
         pass
-    return home / PLUGIN_ID
+    return home / "plugin-data" / PLUGIN_ID
 
 
 def vault_db_path() -> Path:

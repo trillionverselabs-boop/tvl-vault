@@ -4,7 +4,7 @@ One SQLite file. Everything in it is derived from the corpus, so any table can b
 rebuilt; nothing in it is the only copy of a fact except `corrections`, which is
 mirrored to `corrections.jsonl` in the data root.
 
-**File:** `~/.hermes/profiles/<profile>/tvl-vault/vault.db`
+**File:** `~/.hermes/profiles/<profile>/plugin-data/tvl-vault/vault.db`
 **Engine:** SQLite 3.53.1 with FTS5. **No migrations** — a rebuild recreates it.
 
 ```bash

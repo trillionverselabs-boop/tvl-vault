@@ -17,7 +17,7 @@ in this plugin writes to a source file, and a review decision goes to a
 
 | | |
 |---|---|
-| **One index** | `~/.hermes/profiles/<profile>/tvl-vault/vault.db` — SQLite + FTS5, one file, rebuildable in seconds. |
+| **One index** | `~/.hermes/profiles/<profile>/plugin-data/tvl-vault/vault.db` — SQLite + FTS5, one file, rebuildable in seconds. |
 | **Four surfaces** | Graph (documents + sections + dependencies) · Wall (cards + pictures) · Ask (cited answers) · Review (the human queue). |
 | **Five flags** | `current`, `outdated`, `duplicate`, `conflict`, `unclear` — computed by code, shown in plain language. |
 | **Two model passes** | Only Ask and the conflict pass touch a model. Both are on demand; a rebuild is $0 and offline. |
@@ -64,7 +64,7 @@ cd /home/lisacore/work/tvl-vault
 ```
 
 ```
-vault: 4 roots → /home/lisacore/.hermes/profiles/charlene/tvl-vault/vault.db
+vault: 4 roots → /home/lisacore/.hermes/profiles/charlene/plugin-data/tvl-vault/vault.db
   documents 369 · sections 1866 · duplicates 118 · images 199 · flags: duplicate=118, unclear=43, current=92 · images: 116 shown · 83 test screenshots
 ```
 
@@ -121,5 +121,5 @@ PYTHON=.venv/bin/python ./scripts/test.sh
 The suite is hermetic: `tests/conftest.py` has an autouse fixture that points
 `HERMES_HOME` at a throwaway tree, so no test can read the real corpus or
 write the real profile data root — a module that forgets to redirect still
-cannot touch `~/.hermes/profiles/charlene/tvl-vault/`. `HERMES_VAULT_ROOTS`
+cannot touch `~/.hermes/profiles/charlene/plugin-data/tvl-vault/`. `HERMES_VAULT_ROOTS`
 pins the corpus roots per module where a test builds its own fixture.

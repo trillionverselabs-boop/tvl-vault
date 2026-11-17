@@ -79,7 +79,7 @@ session with her. The defect that made it unsafe to run (tests writing into her
 real review log) is now fixed — see 12a above — so the walkthrough can start the
 moment she is available. Its first step is still `./scripts/rebuild.sh`, because
 the real index has never been built (`paths.vault_db_path()` →
-`~/.hermes/profiles/charlene/tvl-vault/vault.db`, which does not exist).
+`~/.hermes/profiles/charlene/plugin-data/tvl-vault/vault.db`, which does not exist).
 
 Full detail and copy-pasteable code: `docs/PLAN.md`.
 
@@ -223,7 +223,7 @@ stopped and wrote a **Needs Lisa** line rather than guessing. Two facts it
 established first, both about the real data root:
 
 - **The real index has never been built.** `paths.vault_db_path()` →
-  `~/.hermes/profiles/charlene/tvl-vault/vault.db` — **does not exist**. Every
+  `~/.hermes/profiles/charlene/plugin-data/tvl-vault/vault.db` — **does not exist**. Every
   build so far wrote to a throwaway `--db` under the scratch dir, so the
   walkthrough's first step is `./scripts/rebuild.sh` (the plan's task-12 command
   reads `paths.vault_db_path()` and would find nothing).
@@ -315,7 +315,7 @@ established first, both about the real data root:
   and its module docstring says "`HERMES_HOME` is pointed at a throwaway tree" —
   it is not. `review.write_correction` → `correction_path()` →
   `data_root()/"corrections.jsonl"`, so every `test_api.py` run appends to
-  `~/.hermes/profiles/charlene/tvl-vault/corrections.jsonl`. Measured, not inferred:
+  `~/.hermes/profiles/charlene/plugin-data/tvl-vault/corrections.jsonl`. Measured, not inferred:
   `wc -l` went **237 → 241**, then **245 → 249**, then **249 → 253** across three
   single-file runs. `tests/test_review.py` carried an autouse fixture that sets
   `HERMES_HOME`; `test_api.py` did not. **Fixed in `9782385`** (task 12a): the

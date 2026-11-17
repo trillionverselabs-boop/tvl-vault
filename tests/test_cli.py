@@ -164,9 +164,9 @@ def test_rebuild_without_a_db_argument_writes_the_profile_index(tmp_path, capsys
     cli.main(["rebuild"])
 
     out = capsys.readouterr().out
-    expected = home / "tvl-vault" / "vault.db"
+    expected = home / "plugin-data" / "tvl-vault" / "vault.db"
     assert expected.exists(), f"expected the index at {expected}; output was {out!r}"
-    assert "tvl-vault" in out, out
+    assert "plugin-data" in out, out
 
 
 def test_rebuild_is_idempotent(tmp_path):

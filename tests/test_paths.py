@@ -53,6 +53,24 @@ def test_vault_db_path_is_inside_data_root(tmp_path, monkeypatch):
     assert paths.vault_db_path() == paths.data_root() / "vault.db"
 
 
+def test_the_fallback_is_the_path_the_host_actually_reads(tmp_path, monkeypatch):
+    """Outside Hermes the same root must come out, or the CLI builds an index the
+    plugin never reads. That is exactly what happened: the desktop showed an
+    empty vault and a 404 while a full index sat one directory away."""
+    import builtins
+
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    real_import = builtins.__import__
+
+    def blocked(name, *args, **kwargs):
+        if name.startswith("plugins.plugin_storage"):
+            raise ImportError(name)
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", blocked)
+    assert paths.data_root() == tmp_path / "plugin-data" / "tvl-vault"
+
+
 def test_excluded_dirs_are_recognised():
     assert paths.is_excluded_dir(".venv")
     assert paths.is_excluded_dir("node_modules")
