@@ -554,48 +554,144 @@ def _excerpt(path: str, kind: str, limit: int = 1600) -> str:
     return " ".join(text.split())[:limit]
 
 
+PLAIN_FLAG = {
+    "duplicate": "Two files hold the same words. Only one belongs in the index.",
+    "outdated": "A newer version of this document exists, so this copy may be out of date.",
+    "conflict": "Two passages make claims that cannot both be true.",
+    "unclear": "No sections could be read in this file, so it cannot be searched or cited.",
+}
+
+KIND_PLAIN = {
+    "pdf": "a PDF document", "markdown": "a markdown note", "text": "a plain text file",
+    "html": "a web page (HTML)", "docx": "a Word document", "csv": "a spreadsheet (CSV)",
+    "image": "an image",
+}
+
+
+def _norm_heading(title: str) -> str:
+    return re.sub(r"\s+", " ", (title or "").strip().lower())
+
+
+def about(doc: dict, sections: list[dict]) -> dict:
+    """What this document IS, in plain terms — for someone who last saw it a year
+    ago and has only a filename to go on. Everything here comes from the file's
+    own words; nothing is inferred or model-written."""
+    words = sum(int(s.get("words") or 0) for s in sections)
+    gist = ""
+    for s in sections:
+        if s.get("body"):
+            gist = " ".join(s["body"].split())
+            break
+    if not gist:
+        gist = doc.get("excerpt") or ""
+    return {
+        "kind": doc["kind"],
+        "kind_plain": KIND_PLAIN.get(doc["kind"], doc["kind"]),
+        "size": doc.get("size") or 0,
+        "sections": doc.get("section_count") or 0,
+        "words": words,
+        "headings": [s["title"] for s in sections if s["title"]][:8],
+        "gist": gist[:600],
+    }
+
+
+def section_diff(db: sqlite3.Connection, a_id: str, b_id: str, chars: int = 1400) -> dict:
+    """Align two documents section by section and say which parts differ.
+
+    The unit of review is the *section*, not the file: two documents can share a
+    title and still disagree in three paragraphs. Sections are matched on their
+    heading; a pair whose words differ is `changed`, a section present on one
+    side only is `only_a` / `only_b`.
+    """
+    def secs(doc_id):
+        rows = db.execute(
+            "SELECT title, body FROM sections WHERE doc_id=? ORDER BY ord", (doc_id,)).fetchall()
+        return [(r["title"] or "", (r["body"] or "").strip()) for r in rows]
+
+    a, b = secs(a_id), secs(b_id)
+    b_by: dict[str, list[int]] = {}
+    for i, (t, _) in enumerate(b):
+        b_by.setdefault(_norm_heading(t), []).append(i)
+
+    used: set[int] = set()
+    pairs, only_a = [], []
+    for t, body in a:
+        cand = b_by.get(_norm_heading(t))
+        hit = next((i for i in cand if i not in used), None) if cand else None
+        if hit is None:
+            only_a.append({"title": t, "body": body[:chars]})
+            continue
+        used.add(hit)
+        other = b[hit][1]
+        pairs.append({"title": t, "a": body[:chars], "b": other[:chars],
+                      "status": "same" if body == other else "changed"})
+    only_b = [{"title": b[i][0], "body": b[i][1][:chars]} for i in range(len(b)) if i not in used]
+    changed = [p for p in pairs if p["status"] == "changed"]
+    return {
+        "pairs": pairs, "only_a": only_a, "only_b": only_b,
+        "changed": len(changed), "same": len(pairs) - len(changed),
+        "identical": not only_a and not only_b and not changed,
+    }
+
+
 def recommend(doc: dict, flag: str) -> dict:
-    """What I would do, and why — stated so it can be argued with."""
+    """What I would do, and why — in plain terms, so it can be argued with."""
+    own = doc["path"]
     if flag == "duplicate":
         copies = [c["path"] for c in doc.get("counterparts", [])]
         suffixed = [p for p in copies if _DOWNLOAD_RE.match(Path(p).stem)]
         if suffixed:
-            return {"action": "confirm",
-                    "why": "The copy is a browser re-download (" +
-                           ", ".join(Path(p).name for p in suffixed) +
-                           "). The bytes are identical, so keep the cleanly named file."}
+            return {"action": "confirm", "keep": own, "keep_name": Path(own).name,
+                    "why": "The other file is a re-download of this one — same words, a \"-2\" style "
+                           "name. Keep this file and let the re-download go.",
+                    "plain": f"Keep {Path(own).name}. The other one is the same file re-saved."}
         if copies:
-            return {"action": "keep",
-                    "why": f"Same bytes under {len(copies)} other clean name(s). Pick the folder "
-                           "that is the source of truth, delete the rest, then confirm."}
-        return {"action": "keep", "why": "Flagged as a duplicate but no copy path was recorded."}
+            others = ", ".join(Path(p).name for p in copies)
+            return {"action": "keep", "keep": "", "keep_name": "",
+                    "why": f"Same words under a different clean name ({others}). Choosing which "
+                           "folder is the source of truth is your call, not a rule's.",
+                    "plain": "Both files hold the same words under different names — "
+                             "you choose which one to keep."}
+        return {"action": "keep", "keep": "", "keep_name": "",
+                "why": "Flagged as a duplicate but no copy path was recorded.",
+                "plain": "Flagged as a duplicate, but no matching file was recorded."}
 
     if flag == "unclear":
         if _is_derived_output(doc["path"]):
-            return {"action": "edit",
-                    "why": "This is pipeline output (a video composition or a concat/narration "
-                           "file), not a source document. It has no headings because it was never "
-                           "written to be read — mark it not-knowledge."}
+            return {"action": "edit", "keep": "", "keep_name": "",
+                    "why": "This is output from the video pipeline (a scene or a concat/narration "
+                           "file), not a document anyone wrote to be read. It has no headings "
+                           "because it was never meant to have them.",
+                    "plain": "This is a video build file, not a note. It does not belong in the "
+                             "knowledge index."}
         if doc["kind"] == "pdf":
-            return {"action": "keep",
-                    "why": "A real document the reader could not parse (no numbered headings). "
-                           "Keep it — the reader needs fixing, not the file."}
-        return {"action": "keep", "why": "No headings found. Read the excerpt and decide."}
+            return {"action": "keep", "keep": "", "keep_name": "",
+                    "why": "A real document the reader could not parse (it has no numbered "
+                           "headings). Keep it — the reader needs fixing, not the file.",
+                    "plain": "A real document we could not read properly. Keep it; the "
+                             "reader needs fixing."}
+        return {"action": "keep", "keep": "", "keep_name": "",
+                "why": "No headings found. Read the preview and decide.",
+                "plain": "No readable sections. Have a look before deciding."}
 
-    return {"action": "keep", "why": "No rule applies. Read it and decide."}
+    return {"action": "keep", "keep": "", "keep_name": "",
+            "why": "No rule applies. Read it and decide.",
+            "plain": "No rule applies — read it and decide."}
 
 
 def compare(db: sqlite3.Connection, doc_id: str, flag: str,
-            limit: int = 8, chars: int = 900) -> dict:
-    """Everything the review UI needs to show the actual text, not just a filename."""
+            limit: int = 8, chars: int = 1400) -> dict:
+    """Everything the review UI needs: what the document is, what is wrong with
+    it, the exact passages involved, and a recommendation with its reason."""
     row = db.execute("SELECT * FROM documents WHERE doc_id=?", (doc_id,)).fetchone()
     if row is None:
         raise KeyError(doc_id)
     doc = dict(row)
     doc["sections"], doc["section_count"] = _sections_brief(db, doc_id, limit, chars)
     doc["excerpt"] = _excerpt(doc["path"], doc["kind"])
+    doc["about"] = about(doc, doc["sections"])
     doc["counterparts"] = []
-    if flag == "duplicate":
+    if flag in ("duplicate", "outdated"):
         for r in db.execute("SELECT path FROM duplicates WHERE sha256=?", (doc["sha256"],)):
             cp = r["path"]
             other = db.execute(
@@ -603,16 +699,24 @@ def compare(db: sqlite3.Connection, doc_id: str, flag: str,
             doc["counterparts"].append({
                 "path": cp, "name": Path(cp).name,
                 "listed": other is not None,
+                "doc_id": other["doc_id"] if other else "",
                 "title": other["title"] if other else Path(cp).stem,
                 "kind": other["kind"] if other else doc["kind"],
             })
     frow = db.execute(
         "SELECT reason, evidence FROM flags WHERE doc_id=? AND flag=?", (doc_id, flag)).fetchone()
+    doc["diff"] = None
+    if flag in ("duplicate", "outdated"):
+        other_id = next((c["doc_id"] for c in doc["counterparts"] if c["doc_id"]), "")
+        # A duplicate's copy is usually not indexed; the bytes are identical, so
+        # the same sections are its sections.
+        doc["diff"] = section_diff(db, doc_id, other_id or doc_id, chars)
     return {
         "doc_id": doc_id,
         "flag": flag,
         "reason": frow["reason"] if frow else "",
         "evidence": frow["evidence"] if frow else "",
+        "plain": PLAIN_FLAG.get(flag, ""),
         "document": doc,
         "recommendation": recommend(doc, flag),
     }

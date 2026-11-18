@@ -200,7 +200,7 @@ def test_pipeline_output_is_recommended_not_knowledge(tmp_path):
     out = review.compare(db, doc, "unclear")
 
     assert out["recommendation"]["action"] == "edit"
-    assert "pipeline output" in out["recommendation"]["why"]
+    assert "video pipeline" in out["recommendation"]["why"]
     assert out["document"]["excerpt"], "the file's own text should be shown"
 
 
@@ -220,3 +220,51 @@ def test_compare_on_an_unknown_document_raises(tmp_path):
     db = _seed(tmp_path)
     with pytest.raises(KeyError):
         review.compare(db, "ffffffffffffffff", "duplicate")
+
+
+# ── what the document is, and what differs ────────────────────────────────
+
+def test_about_says_what_the_document_is(tmp_path):
+    """A reviewer last saw these a year ago and has only a filename. `about` is
+    built from the file's own words, so it can be shown without guessing."""
+    (tmp_path / "a.md").write_text(
+        "# Alpha Doctrine\n\n## One\n\nFirst real passage about sabotage contest logic.\n")
+    db = index.rebuild(tmp_path, tmp_path / "vault.db")
+    review.write_flags(db, review.compute_flags(db))
+    doc = db.execute("SELECT doc_id FROM documents").fetchone()[0]
+
+    a = review.compare(db, doc, "unclear")["document"]["about"]
+
+    assert a["kind_plain"] == "a markdown note"
+    assert a["sections"] >= 1
+    assert "sabotage contest logic" in a["gist"]
+
+
+def test_section_diff_highlights_what_differs(tmp_path):
+    (tmp_path / "a.md").write_text("# Same\n\n## One\n\nalpha body\n\n## Two\n\nshared\n")
+    (tmp_path / "b.md").write_text("# Same\n\n## One\n\nalpha body CHANGED\n\n## Three\n\nnew\n")
+    db = index.rebuild(tmp_path, tmp_path / "vault.db")
+    a = db.execute("SELECT doc_id FROM documents WHERE path LIKE '%a.md'").fetchone()[0]
+    b = db.execute("SELECT doc_id FROM documents WHERE path LIKE '%b.md'").fetchone()[0]
+
+    d = review.section_diff(db, a, b)
+
+    assert d["changed"] == 1 and d["same"] == 1
+    one = next(p for p in d["pairs"] if p["title"] == "One")
+    assert one["status"] == "changed" and "CHANGED" in one["b"]
+    assert [x["title"] for x in d["only_b"]] == ["Three"]
+    assert d["identical"] is False
+
+
+def test_a_byte_duplicate_diffs_as_identical(tmp_path):
+    (tmp_path / "doc.md").write_text("# Same\n\nbody\n")
+    (tmp_path / "doc (1).md").write_text("# Same\n\nbody\n")
+    db = index.rebuild(tmp_path, tmp_path / "vault.db")
+    review.write_flags(db, review.compute_flags(db))
+    dup = db.execute("SELECT doc_id FROM flags WHERE flag='duplicate'").fetchone()[0]
+
+    out = review.compare(db, dup, "duplicate")
+
+    assert out["document"]["diff"]["identical"] is True
+    assert out["plain"], "a plain-language reason for the flag is required"
+    assert out["recommendation"]["plain"]
