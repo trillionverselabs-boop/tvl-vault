@@ -3,11 +3,16 @@
 
 The desktop Review tab is the live surface, but a decision this consequential
 should also be readable as a document: every item, its actual text, the copy it
-is measured against, and a recommendation with its reason — in one file, with no
-app, no account, and nothing leaving the machine.
+is measured against, and a recommendation with its reason.
 
     ./scripts/review_audit.py                    # writes docs/REVIEW-AUDIT.html
     ./scripts/review_audit.py /path/to/out.html
+
+Everything is rendered here in Python. No item depends on JavaScript: the Hermes
+desktop previews HTML without running scripts, and a page that needs JS to show
+its content reads as a blank document there. JS is kept only as an *enhancement*
+(the Confirm/Keep/Edit buttons and copy-to-clipboard), so the file is complete
+with scripts off and fully usable in a browser.
 """
 
 from __future__ import annotations
@@ -43,10 +48,13 @@ CSS = """
        font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif}
   .wrap{max-width:1080px;margin:0 auto;padding:36px 30px 80px}
   h1{font-size:26px;margin:0 0 6px;letter-spacing:-.02em}
-  .sub{color:#5b6675;margin:0 0 22px}
+  .sub{color:#5b6675;margin:0 0 18px}
   .meta{background:#fff;border:1px solid #dfe3e8;border-radius:10px;padding:14px 18px;
-        margin:0 0 26px;color:#37414f;font-size:14px}
+        margin:0 0 16px;color:#37414f;font-size:14px}
   .meta b{color:#14181f}
+  .plainnote{margin:0 0 22px;padding:11px 14px;background:#fff8e8;border:1px solid #f0e0b4;
+             border-radius:8px;font-size:13.5px;color:#6b4c00}
+  .plainnote code{font:12.5px ui-monospace,Consolas,monospace}
   table{width:100%;border-collapse:collapse;background:#fff;border:1px solid #dfe3e8;
         border-radius:10px;overflow:hidden;font-size:13.5px}
   th,td{text-align:left;padding:8px 11px;border-bottom:1px solid #eceff2;vertical-align:top}
@@ -85,7 +93,8 @@ CSS = """
           overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .sec{margin:0 0 10px}
   .sec h5{margin:0 0 3px;font-size:13px}
-  .sec p{margin:0;font-size:13px;color:#37414f;line-height:1.5}
+  .sec p{margin:0;font-size:13px;color:#37414f;line-height:1.5;white-space:pre-wrap;
+         word-break:break-word}
   .ex{font-size:13px;color:#37414f;white-space:pre-wrap;word-break:break-word;margin:0 0 8px}
   .copy{margin:0 0 6px;font-size:13px}
   .copy b{font-weight:600}
@@ -101,22 +110,15 @@ CSS = """
   .bar{position:sticky;top:0;background:#f6f7f9;padding:10px 0 12px;margin-bottom:14px;
        border-bottom:1px solid #dfe3e8;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
   .bar .count{font-size:13px;color:#37414f}
-  @media print{button,.bar{display:none}details{break-inside:avoid}.cols{grid-template-columns:1fr}}
   .index{margin-top:26px}
   .index table{border:none;border-radius:0 0 10px 10px}
-  .index[open]{border-top:none}
+  @media print{button,.bar{display:none}details{break-inside:avoid}
 """
 
+# JS is an enhancement only: every word of content is already in the HTML.
 JS = r"""
-const FLAG_LABEL = __FLAG_LABEL__;
-const FLAG_CLASS = __FLAG_CLASS__;
 const ITEMS = __ITEMS__;
 ITEMS.forEach(i => { i.decision = null; i.note = ''; });
-
-function esc(s){
-  return String(s == null ? '' : s).replace(/[&<>"']/g,
-    m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
-}
 
 function decide(n, action){
   const it = ITEMS.find(i => i.n === n);
@@ -160,53 +162,65 @@ function copyDecisions(){
   });
 }
 
-function item(i){
-  const secs = i.sections.length
-    ? i.sections.map(s => '<div class="sec"><h5>' + esc(s.title || '—') +
-        '</h5><p>' + esc(s.body) + '</p></div>').join('')
-    : '<p class="ex">' + esc(i.excerpt || 'No text could be extracted.') + '</p>';
-
-  let right;
-  if (i.copies.length) {
-    right = '<h4>The copy</h4>' +
-      i.copies.map(cp => '<div class="copy"><b>' + esc(cp.name) + '</b><br>' +
-        '<span>' + esc(cp.path) + '</span></div>').join('') +
-      '<div class="sec"><h5>The same text</h5><p>Identical bytes — sha256 ' +
-      esc(String(i.sha).slice(0, 16)) + '…</p></div>' +
-      (i.sections.length ? '<p class="ex">' + esc(i.sections[0].body) + '</p>' : '');
-  } else {
-    right = '<h4>Why it is flagged</h4><p class="ex">' +
-      esc(i.reason || 'No reason recorded.') + '</p>' +
-      (i.excerpt ? '<p class="ex">' + esc(i.excerpt) + '</p>' : '');
-  }
-
-  const label = FLAG_LABEL[i.flag] || i.flag;
-  return '<details class="item" data-n="' + i.n + '">' +
-    '<summary><span class="n">#' + i.n + '</span>' +
-    '<span class="flag ' + (FLAG_CLASS[i.flag] || '') + '">' + esc(label) + '</span>' +
-    '<span class="t">' + esc(i.title) + '</span>' +
-    '<span class="p">' + esc(i.path) + '</span>' +
-    '<span class="rec"></span></summary>' +
-    '<div class="body">' +
-      '<p class="reason"><b>' + esc(label) + '.</b> ' + esc(i.reason) + '</p>' +
-      '<div class="recbox"><b>My recommendation · ' + esc(i.rec_action) + '</b>' +
-        esc(i.rec_why) + '</div>' +
-      '<div class="cols">' +
-        '<div class="col"><h4>' + esc(i.kind) + ' · ' + esc(i.path) + '</h4>' + secs +
-          '<div class="note">' + i.section_count + ' sections</div></div>' +
-        '<div class="col">' + right + '</div>' +
-      '</div>' +
-      '<div class="acts">' +
-        '<button class="p" data-act="confirm" onclick="decide(' + i.n + ',\'confirm\')">Confirm</button>' +
-        '<button data-act="keep" onclick="decide(' + i.n + ',\'keep\')">Keep</button>' +
-        '<button data-act="edit" onclick="decide(' + i.n + ',\'edit\')">Edit</button>' +
-      '</div>' +
-    '</div></details>';
-}
-
-document.getElementById('items').innerHTML = ITEMS.map(item).join('');
 render();
 """
+
+
+def e(text) -> str:
+    return html.escape("" if text is None else str(text))
+
+
+def render_item(r: dict) -> str:
+    """One item, complete, in static HTML."""
+    label = FLAG_LABEL.get(r["flag"], r["flag"])
+    rec = r["rec_action"] or "keep"
+
+    if r["sections"]:
+        left = "".join(
+            '<div class="sec"><h5>{}</h5><p>{}</p></div>'.format(
+                e(s.get("title") or "—"), e(s.get("body")))
+            for s in r["sections"])
+    else:
+        left = '<p class="ex">{}</p>'.format(
+            e(r["excerpt"]) if r["excerpt"] else "<i>No text could be extracted.</i>")
+
+    if r["copies"]:
+        right = "<h4>The copy</h4>" + "".join(
+            '<div class="copy"><b>{}</b><br><span>{}</span></div>'.format(
+                e(c.get("name")), e(c.get("path")))
+            for c in r["copies"])
+        right += ('<div class="sec"><h5>The same text</h5><p>Identical bytes — sha256 '
+                  + e(str(r["sha"])[:16]) + "…</p></div>")
+        body = r["sections"][0].get("body") if r["sections"] else r["excerpt"]
+        if body:
+            right += '<p class="ex">{}</p>'.format(e(body))
+    else:
+        right = "<h4>Why it is flagged</h4>" + '<p class="ex">{}</p>'.format(e(r["reason"]))
+        if r["excerpt"]:
+            right += '<p class="ex">{}</p>'.format(e(r["excerpt"]))
+
+    return f"""<details class="item" data-n="{r['n']}">
+  <summary><span class="n">#{r['n']}</span>
+    <span class="flag {FLAG_CLASS.get(r['flag'], '')}">{e(label)}</span>
+    <span class="t">{e(r['title'])}</span>
+    <span class="p">{e(r['path'])}</span>
+    <span class="rec">MY RECOMMENDATION: {e(rec.upper())}</span></summary>
+  <div class="body">
+    <p class="reason"><b>{e(label)}.</b> {e(r['reason'])}</p>
+    <div class="recbox"><b>My recommendation · {e(rec)}</b>{e(r['rec_why'])}</div>
+    <div class="cols">
+      <div class="col"><h4>{e(r['kind'])} · {e(r['path'])}</h4>{left}
+        <div class="note">{r['section_count']} sections</div></div>
+      <div class="col">{right}</div>
+    </div>
+    <div class="acts">
+      <button class="p" data-act="confirm"
+        onclick="decide({r['n']},'confirm')">Confirm</button>
+      <button data-act="keep" onclick="decide({r['n']},'keep')">Keep</button>
+      <button data-act="edit" onclick="decide({r['n']},'edit')">Edit</button>
+    </div>
+  </div>
+</details>"""
 
 
 def collect() -> list[dict]:
@@ -239,26 +253,27 @@ def collect() -> list[dict]:
 
 
 def build(rows: list[dict], out_path: Path) -> Path:
-    # A corpus excerpt can itself contain `<script>` (the unclear items are HTML
-    # scene files). Left alone it closes this inline script and the whole audit
-    # renders blank. `\/` is a valid JSON escape for `/`, so the data is
-    # unchanged and the tag is broken.
-    payload = json.dumps(rows).replace("</", "<\\/")
-    js = (JS.replace("__FLAG_LABEL__", json.dumps(FLAG_LABEL))
-             .replace("__FLAG_CLASS__", json.dumps(FLAG_CLASS))
-             .replace("__ITEMS__", payload))
+    # The JS state needs only the item numbers; all visible content is already in
+    # the HTML. A corpus excerpt can itself contain `<script>` (the unclear items
+    # are HTML scene files) — `\/` is a valid JSON escape for `/`, so the data is
+    # unchanged and the tag cannot close this script.
+    payload = json.dumps([{"n": r["n"], "flag": r["flag"], "rec_action": r["rec_action"]}
+                          for r in rows]).replace("</", "<\\/")
+    js = JS.replace("__ITEMS__", payload)
 
     summary = "".join(
         "<tr><td class='n'>{}</td><td><span class='flag {}'>{}</span></td>"
         "<td>{}</td><td><code>{}</code></td><td>{}</td></tr>".format(
             r["n"], FLAG_CLASS.get(r["flag"], ""),
-            html.escape(FLAG_LABEL.get(r["flag"], r["flag"])),
-            html.escape(r["title"]), html.escape(r["path"]), html.escape(r["rec_action"] or ""))
+            e(FLAG_LABEL.get(r["flag"], r["flag"])),
+            e(r["title"]), e(r["path"]), e(r["rec_action"] or ""))
         for r in rows)
 
     counts = {f: sum(1 for r in rows if r["flag"] == f) for f in FLAG_LABEL}
+
     def cnt(n: int, one: str, many: str) -> str:
         return f"{n} {one if n == 1 else many}"
+
     doc = f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <title>The Vault — review audit</title>
@@ -266,8 +281,8 @@ def build(rows: list[dict], out_path: Path) -> Path:
 <body><div class="wrap">
   <h1>The Vault — review audit</h1>
   <p class="sub">Every document waiting on a decision, with its actual text and a
-     recommendation. Reading it changes nothing; a decision is only recorded when
-     you say so. Open an item, read it, then Confirm, Keep or Edit.</p>
+     recommendation. Open an item, read it, then decide. Reading this file changes
+     nothing; nothing in your documents is written.</p>
   <div class="meta">
     <b>{len(rows)} items</b> &nbsp;·&nbsp;
     <b>{cnt(counts['duplicate'], 'duplicate', 'duplicates')}</b> &nbsp;·&nbsp;
@@ -281,7 +296,11 @@ def build(rows: list[dict], out_path: Path) -> Path:
     <span class="note">Confirm = the flag stands. Keep = leave it for later.
       Edit = a correction is needed.</span>
   </div>
-  <div id="items"></div>
+  <div class="plainnote">If the buttons on an item do nothing, this viewer does not
+    run scripts — the audit is still complete. Read it and reply with your
+    decisions (for example <code>confirm 1, keep 2-49</code>) and they will be
+    recorded.</div>
+  {''.join(render_item(r) for r in rows)}
   <details class="index"><summary>Index of all {len(rows)} items</summary>
   <table><thead><tr><th>#</th><th>Flag</th><th>Document</th><th>Path</th>
     <th>My recommendation</th></tr></thead><tbody>{summary}</tbody></table>

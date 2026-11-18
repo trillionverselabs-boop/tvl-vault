@@ -48,9 +48,23 @@ def test_a_corpus_script_tag_does_not_blank_the_page(tmp_path):
 
     assert html.count("</script>") == 1, "a corpus </script> closed the audit's own script"
     assert "const ITEMS" in html
-    assert "document.getElementById('items')" in html
+    assert 'class="item"' in html
     # the data survived the escape
     assert json.loads(json.dumps(_row()))["excerpt"] == "<script>alert(1)</script>"
+
+
+def test_the_items_are_static_html_not_drawn_by_script(tmp_path):
+    """The Hermes desktop previews HTML without running scripts. If the items are
+    drawn by JS the file reads as a blank document there — the counts show, the
+    index shows, and there is nothing to review."""
+    mod = _load()
+    rows = [_row(n=1), _row(n=2)]
+    html = mod.build(rows, tmp_path / "audit.html").read_text()
+
+    assert html.count('class="item"') == 2, "items are not in the static HTML"
+    assert html.count('class="recbox"') == 2
+    assert "innerHTML = ITEMS" not in html, "the page still draws its content with JS"
+    assert "<script>" in html and html.count("</script>") == 1
 
 
 def test_the_audit_carries_the_decision_controls_and_the_index(tmp_path):
