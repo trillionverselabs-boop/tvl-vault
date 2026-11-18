@@ -115,6 +115,28 @@ The left rail is titled *needs review*, so it counts the **queue** (what is left
 to decide), not every flag ever recorded. The KPI "duplicates or disagreements"
 is corpus state and still counts all of them.
 
+## The audit document
+
+The Review tab is the live surface, but a decision this consequential also needs
+to be readable as a document. One command builds it:
+
+```bash
+./scripts/review_audit.py                  # docs/REVIEW-AUDIT.html
+```
+
+Every item on the queue, in one self-contained file: the flag, the reason, the
+document's actual text on the left, the copy it is measured against on the right,
+and the recommendation with its reason. Each item has **Confirm / Keep / Edit**;
+**Copy my decisions** puts the list on the clipboard to paste back. No app, no
+account, no network — and the source documents are never written.
+
+Two things the tests guard, because both fail silently:
+
+- a corpus excerpt containing `<script>` closes the page's own inline script and
+  blanks every item (`tests/test_audit.py`);
+- the audit is built from the same queue the Review tab shows, not a second query
+  that can drift.
+
 ---
 
 ## Where things live
